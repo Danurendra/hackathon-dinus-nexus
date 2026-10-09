@@ -4,11 +4,26 @@ from uuid import uuid4
 from src.data_adapter import search_helpdesk
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 
 
 app = FastAPI(title="DinusNexus API", version="0.1.0")
+
+# Local frontend development only. Production origins must be configured explicitly.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+    ],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type"],
+)
 
 # Temporary storage for local development.
 # PostgreSQL persistence will replace this in the next phase.
