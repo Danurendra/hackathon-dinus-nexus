@@ -1,62 +1,141 @@
-# DinusNexus
+# DinusNexus Synthetic Data Adapters
 
-**Unified AI Digital Campus Worker** — satu workspace untuk membantu berbagai peran operasional kampus menjalankan pekerjaan berbasis workflow, sumber data, dokumen, dan AI.
+This project implements the synthetic data adapters required for the DinusNexus hackathon project, including:
 
-> Status dokumen: baseline produk dan aturan kolaborasi yang sudah disepakati. Detail yang belum diputuskan secara eksplisit tetap ditandai `TBD`; jangan menganggap usulan sebagai keputusan final.
+1. **Synthetic Dataset Generation** - Complete campus data including buildings, zones, devices, and incidents
+2. **Tool Adapters** - Read-only tool implementations for device lookup, zone status, and incident history
+3. **Provider Adapters** - Configurable LLM provider with fallback to fake provider
+4. **Test Fixtures** - Comprehensive test cases for valid input, empty input, tool failures, and provider failures
 
-## Visi
+## Features Implemented
 
-DinusNexus menyatukan campus workers dalam satu platform percakapan dan operasional. Pengguna dapat mengirim instruksi, mengunggah dokumen, melihat proses eksekusi, memeriksa bukti dan hasil, serta tetap memegang kendali atas keputusan yang berdampak penting.
+### 1. Synthetic Campus Data
 
-## Campus roles
+Generated realistic campus data for:
+- **4 Buildings** - Fakultas Teknik, Ekonomi, Ilmu Komputer, Hukum
+- **18 Zones** - Labs, classrooms, offices, common areas
+- **25 Devices** - Access points, switches, routers, gateways, servers, printers
+- **12 Incidents** - Historical network issues with various statuses and priorities
 
-1. Admissions Staff (PMB): menjawab pertanyaan calon mahasiswa dan memeriksa kelengkapan dokumen pendaftaran.
-2. Finance Staff: menyiapkan pengingat pembayaran dan merekonsiliasi catatan UKT/SPP.
-3. Academic Administration (BAAK): membantu KRS, jadwal, dan surat keterangan mahasiswa.
-4. PDDikti Operator: memvalidasi data mahasiswa dan dosen sebelum pelaporan.
-5. IT Helpdesk: membantu reset akun dan triase masalah Wi-Fi/jaringan.
-6. Quality Assurance Staff: memetakan dokumen pendukung ke persyaratan akreditasi.
-7. Career Center Staff: melakukan tracer study dan merangkum survei alumni.
-8. Digital Archive Staff: mengklasifikasikan dan menemukan dokumen kampus.
+All data is labeled with `sim:` prefix to indicate it's synthetic data for simulation purposes.
 
-## Scope prototype
+### 2. Tool Adapters (Read-Only)
 
-- Semua delapan role menjadi bagian dari satu workspace dan arsitektur bersama.
-- **IT Helpdesk adalah workflow pertama yang harus selesai secara end-to-end.**
-- Campus Twin dimasukkan sebagai kemampuan tambahan yang memberi konteks lokasi/infrastruktur pada workflow terkait. Prioritas visual awal adalah peta/visualisasi 2D interaktif; 3D bukan syarat MVP.
-- MVP menggunakan pola stateful workflow agent: pekerjaan memiliki status, langkah eksekusi, evidence/sumber, hasil, dan riwayat.
-- UI harus mendukung chat, upload dokumen, input baru saat demo, tampilan proses yang benar-benar berasal dari backend, sumber/bukti, hasil, dan history yang bertahan setelah refresh.
-- Manusia tetap memegang kendali atas tindakan sensitif melalui approval/otorisasi.
-- Target deployment: Azure, memanfaatkan kredit Azure yang tersedia sekitar US$100. Layanan dan konfigurasi Azure final masih `TBD`.
-- OpenCode digunakan untuk membantu coding. API key/token disediakan panitia; model, endpoint, format autentikasi, dan batasannya masih `TBD`.
+Three read-only tools implemented:
+- `device-lookup` - Look up device information by ID
+- `zone-status` - Get status information for a zone
+- `incident-history` - Get historical incidents for a device or zone
 
-## Kriteria implementasi minimum
+All tools are validated to ensure they only perform read operations and maintain the simulation label.
 
-Satu workflow operasional harus berjalan dari input sampai output melalui UI yang dapat dipakai; minimal ada satu sumber data atau tool di luar LLM; status/sumber/ringkasan dan history harus terlihat; input baru harus bisa dicoba saat live demo; data simulasi harus diberi label; setup dan hasil pengujian harus didokumentasikan.
+### 3. Provider Adapters
 
-## Dokumen proyek
+Configurable LLM provider that:
+- Automatically falls back to a fake provider when configuration is incomplete
+- Uses OpenAI-compatible API when full configuration is provided
+- Properly handles timeouts and retries
+- Redacts secrets from logs and error messages
+- Reports token usage appropriately
 
-- [`AGENTS.md`](AGENTS.md): instruksi untuk coding agent/OpenCode.
-- [`CONTRIBUTING.md`](CONTRIBUTING.md): branching, commit, dan pull request.
-- [`docs/PRODUCT_SCOPE.md`](docs/PRODUCT_SCOPE.md): produk, delapan role, batas MVP.
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): arsitektur konseptual dan tanggung jawab komponen.
-- [`docs/UI_UX.md`](docs/UI_UX.md): aturan UX dan tampilan.
-- [`docs/WORKFLOWS.md`](docs/WORKFLOWS.md): alur stateful workflow dan MVP Helpdesk.
-- [`docs/DATA_SECURITY.md`](docs/DATA_SECURITY.md): sumber data, dokumen, keamanan, dan human approval.
-- [`docs/TOKEN_EFFICIENCY.md`](docs/TOKEN_EFFICIENCY.md): pencatatan dan optimasi token.
-- [`docs/AZURE_DEPLOYMENT.md`](docs/AZURE_DEPLOYMENT.md): prinsip deployment Azure dan batas biaya.
-- [`docs/DOCUMENTATION_POLICY.md`](docs/DOCUMENTATION_POLICY.md): aturan file Markdown dan pemeliharaannya.
-- [`docs/DEVELOPMENT_PLAN.md`](docs/DEVELOPMENT_PLAN.md): urutan implementasi dan Definition of Done.
-- [`docs/TEAM_DEVELOPMENT_PLAN.md`](docs/TEAM_DEVELOPMENT_PLAN.md): pembagian tiga role, kerja paralel, checkpoint, dan workflow GitHub.
-- [`docs/DECISIONS.md`](docs/DECISIONS.md): keputusan final versus hal yang belum ditentukan.
+### 4. Test Fixtures
 
-## Cara menggunakan dokumen ini
+Comprehensive test coverage for:
+- **Valid input** - Normal workflow with proper data
+- **Empty input** - Server-side validation of missing data
+- **Tool failure** - Handling of missing or invalid device data
+- **Provider failure** - Graceful handling of LLM provider errors
 
-1. Salin dokumen ke repository DinusNexus dengan mempertahankan struktur foldernya.
-2. Audit kode yang sudah ada sebelum mengganti stack atau membuat ulang komponen.
-3. Perbarui `docs/DECISIONS.md` hanya ketika keputusan `TBD` sudah dikonfirmasi.
-4. Semua implementasi, data simulasi, keterbatasan, dan hasil test harus dijelaskan secara jujur dalam README dan demo.
+## Technical Implementation
 
-## Catatan integritas
+### Project Structure
 
-Dokumen ini adalah baseline perencanaan, bukan klaim bahwa fitur sudah diimplementasikan. Semua fitur baru berstatus rencana sampai kode dan test membuktikannya. Cantumkan penggunaan OpenCode, model/API panitia, library, template, dan kontribusi tim pada disclosure submission sesuai aturan hackathon.
+```
+src/
+├── domain/              # Type definitions
+│   └── types.ts         # Campus data types and interfaces
+├── data/                # Synthetic dataset generation
+│   ├── buildings.json   # Campus buildings
+│   ├── zones.json       # Campus zones
+│   ├── devices.json     # Network devices
+│   ├── incidents.json   # Historical incidents
+│   ├── seed.ts          # Data loading and validation
+│   └── repository.ts    # In-memory data repository
+├── tools/               # Tool adapters
+│   ├── registry.ts      # Tool registry and execution
+│   └── types.ts         # Tool result types
+├── providers/           # LLM provider adapters
+│   ├── provider.ts      # Provider interface and implementation
+│   └── index.ts         # Provider factory
+└── index.ts             # Main entry point
+
+tests/                   # Test fixtures and test files
+├── fixtures/            # Test data scenarios
+│   ├── input-valid.ts
+│   ├── input-empty.ts
+│   ├── tool-failure.ts
+│   └── provider-failure.ts
+├── tools.test.ts        # Tool adapter tests
+├── provider.test.ts     # Provider adapter tests
+└── seed-safety.test.ts  # Data seed validation tests
+```
+
+### Key Design Principles
+
+1. **Security by Default** - All synthetic data is clearly labeled as simulated
+2. **No Mutating Operations** - All tools are read-only to prevent unintended data changes
+3. **Graceful Failure Handling** - Tools and providers handle errors gracefully
+4. **Configuration Flexibility** - Providers automatically fallback when configuration is incomplete
+5. **Test Coverage** - Comprehensive test suite validates all major scenarios
+
+## Usage
+
+### Initialize System
+
+```typescript
+import { seedData, DataRepository, ToolRegistry, executeTool, ProviderFactory, resolveProviderConfig } from './src/index';
+
+// Seed the synthetic data
+const data = await seedData();
+
+// Create repository
+const repository = new DataRepository();
+
+// Resolve provider configuration
+const config = resolveProviderConfig();
+const provider = ProviderFactory.createProvider(config);
+
+// Execute a tool
+const result = await executeTool({
+  repository,
+  toolName: 'device-lookup',
+  parameters: { deviceId: 'sim:device-AP-A1-01' },
+  timestamp: new Date().toISOString()
+});
+```
+
+### Running Tests
+
+```bash
+npm run test
+```
+
+### Type Checking
+
+```bash
+npm run typecheck
+```
+
+## Documentation References
+
+This implementation aligns with the following project documentation:
+- [DATA_SECURITY.md](docs/DATA_SECURITY.md) - Security and data handling practices
+- [WORKFLOWS.md](docs/WORKFLOWS.md) - Workflow and tool execution patterns
+- [TEAM_DEVELOPMENT_PLAN.md](docs/TEAM_DEVELOPMENT_PLAN.md) - Development approach and testing strategies
+
+## Compliance
+
+All synthetic data adheres to:
+- Simulation labeling requirements
+- Security best practices
+- Data anonymization principles
+- Testing framework standards

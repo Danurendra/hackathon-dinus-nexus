@@ -1,0 +1,21 @@
+{
+  "name": "dinusnexus-synthetic-data",
+  "version": "1.0.0",
+  "description": "Synthetic data adapters for DinusNexus",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "node --env-file=.env src/index.ts",
+    "build": "tsc --build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run test"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0",
+    "@types/node": "^20.0.0"
+  }
+}
