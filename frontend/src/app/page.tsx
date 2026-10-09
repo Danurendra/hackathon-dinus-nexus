@@ -86,7 +86,7 @@ export default function HomePage() {
     void loadHistory();
   }, []);
 
-  const handleCreateTask = async (message: string) => {
+  const handleCreateTask = async (message: string, _attachments?: File[], metadata?: { location?: string; deviceType?: string }) => {
     if (!message.trim() || isCreating) return;
     setIsCreating(true);
     setApiError('');
@@ -94,7 +94,7 @@ export default function HomePage() {
       const response = await fetch(`${API_BASE}/api/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ worker: 'it_helpdesk', description: message.trim() }),
+        body: JSON.stringify({ worker: 'it_helpdesk', description: message.trim(), location: metadata?.location || null, device_type: metadata?.deviceType || null }),
       });
       if (!response.ok) {
         const detail = await response.json().catch(() => null);
@@ -212,6 +212,7 @@ export default function HomePage() {
                   createdAt={task.createdAt}
                   location={task.location}
                   deviceType={task.deviceType}
+                  result={task.result}
                 />
               ))}
               </div>
