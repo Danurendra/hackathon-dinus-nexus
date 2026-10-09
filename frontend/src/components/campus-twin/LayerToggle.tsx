@@ -1,9 +1,9 @@
 'use client';
 
 import { useMemo } from 'react';
-import { Activity, Zap, Wifi, Shield, Users, Thermometer } from 'lucide-react';
-import { Card } from '@/components/ui/Card';
+import { Activity, Zap, Wifi, Shield, Users } from 'lucide-react';
 import { getPalette, type ColorMode } from '@/lib/campusPalette';
+import { panelStyle } from './CampusTheme';
 
 export type LayerType =
   | 'status'
@@ -67,8 +67,8 @@ export function LayerToggle({ colorMode, activeLayers, onToggleLayer }: LayerTog
   const palette = useMemo(() => getPalette(colorMode), [colorMode]);
 
   return (
-    <Card className="p-3 max-w-xs">
-      <h3 className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: palette.textMid }}>
+    <div className="p-3 max-w-xs w-64" style={panelStyle(palette)}>
+      <h3 className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: palette.panelTextMid }}>
         Visualization Layers
       </h3>
       <div className="space-y-1">
@@ -80,40 +80,36 @@ export function LayerToggle({ colorMode, activeLayers, onToggleLayer }: LayerTog
             <button
               key={layer.id}
               type="button"
+              aria-pressed={isActive}
               onClick={() => onToggleLayer(layer.id)}
-              className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-left transition-colors ${
-                isActive
-                  ? 'bg-blue-50 text-blue-900'
-                  : 'hover:bg-gray-50 text-gray-700'
-              }`}
+              className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-left transition-colors"
               style={{
-                backgroundColor: isActive ? `${palette.accent}15` : 'transparent',
-                color: isActive ? palette.accent : palette.textHigh,
+                backgroundColor: isActive ? palette.controlActiveBg : 'transparent',
+                color: isActive ? palette.accent : palette.panelTextHigh,
+                outlineColor: palette.focusRing,
               }}
             >
-              <Icon className="h-4 w-4" />
-              <div className="flex-1">
+              <Icon className="h-4 w-4 shrink-0" style={{ color: isActive ? palette.accent : palette.panelTextMid }} />
+              <div className="flex-1 min-w-0">
                 <p className="text-xs font-medium">{layer.label}</p>
-                <p className="text-[10px] opacity-70">{layer.description}</p>
+                <p className="text-[10px]" style={{ color: palette.panelTextMuted }}>{layer.description}</p>
               </div>
               <div
-                className={`h-3 w-6 rounded-full transition-colors ${
-                  isActive ? 'bg-blue-500' : 'bg-gray-300'
-                }`}
-                style={{
-                  backgroundColor: isActive ? palette.accent : palette.textLow,
-                }}
+                className="h-3 w-6 rounded-full transition-colors shrink-0"
+                style={{ backgroundColor: isActive ? palette.accent : palette.disabledBg }}
               >
                 <div
-                  className={`h-3 w-3 rounded-full bg-white shadow transition-transform ${
-                    isActive ? 'translate-x-3' : 'translate-x-0'
-                  }`}
+                  className="h-3 w-3 rounded-full shadow transition-transform"
+                  style={{
+                    backgroundColor: isActive ? palette.accentText : palette.panelTextMuted,
+                    transform: isActive ? 'translateX(12px)' : 'translateX(0)',
+                  }}
                 />
               </div>
             </button>
           );
         })}
       </div>
-    </Card>
+    </div>
   );
 }

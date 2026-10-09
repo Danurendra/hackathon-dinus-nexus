@@ -69,7 +69,8 @@ Fitur chatbot AI memungkinkan pengguna untuk berinteraksi dengan sistem melalui 
        │                │
 ┌──────▼─────┐  ┌──────▼──────┐
 │ LLM Client │  │ Data Adapter│
-│ (LiteLLM)  │  │ (search)    │
+│ (primary +  │  │ (search)    │
+│ OpenAI fallback)│             │
 └────────────┘  └─────────────┘
 ```
 
@@ -106,6 +107,14 @@ Semua data yang digunakan oleh chatbot berlabel `SYNTHETIC` dan tidak merepresen
 - Kesalahan LLM ditangani dengan baik
 - Pesan error yang aman dikembalikan ke frontend
 - Logging error untuk debugging
+
+### Provider dan fallback
+
+Provider utama memakai `LLM_BASE_URL`, `LLM_API_KEY`, dan `LLM_MODEL`.
+Jika `LLM_FALLBACK_ENABLED=true` dan provider utama gagal, backend mencoba
+OpenAI menggunakan `OPENAI_API_KEY`, `OPENAI_BASE_URL`, dan `OPENAI_MODEL`.
+Model fallback default adalah `gpt-5-nano` untuk menjaga biaya tetap rendah.
+API key hanya dibaca backend dari environment dan tidak pernah dikirim ke frontend.
 
 ## Keamanan
 

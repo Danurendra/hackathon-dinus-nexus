@@ -1,5 +1,4 @@
 import httpx
-import asyncio
 from typing import Dict, List, Any, Optional
 from pydantic import BaseModel
 from src.llm.adapter import LLMAdapter, LLMResponse
@@ -9,6 +8,8 @@ class LiteLLMClient(LLMAdapter):
     """LiteLLM client for CBN Hackathon"""
     
     def __init__(self, settings: LLMSettings):
+        if not settings.base_url or not settings.api_key:
+            raise RuntimeError("Primary LLM provider is not configured.")
         self.client = httpx.AsyncClient(
             base_url=settings.base_url,
             headers={"Authorization": f"Bearer {settings.api_key}"},
@@ -54,3 +55,54 @@ class LiteLLMClient(LLMAdapter):
     async def close(self):
         """Close the HTTP client"""
         await self.client.aclose()
+
+
+class OpenAIChatClient(LiteLLMClient):
+    """OpenAI-compatible chat client used as the optional fallback provider."""
+
+
+class FallbackLLMClient(LLMAdapter):
+    """Try the configured primary provider, then OpenAI when it is available."""
+
+    def __init__(
+        self,
+        primary: LLMAdapter | None,
+        fallback: LLMAdapter | None,
+    ):
+        self.primary = primary
+        self.fallback = fallback
+
+    async def chat_completion(
+        self, messages: List[Dict[str, str]], **kwargs
+    ) -> LLMResponse:
+        errors: list[Exception] = []
+        for provider in (self.primary, self.fallback):
+            if provider is None:
+                continue
+            try:
+                return await provider.chat_completion(messages, **kwargs)
+            except Exception as exc:
+                errors.append(exc)
+
+        raise RuntimeError(
+            "No configured LLM provider could complete the request."
+        ) from (errors[-1] if errors else None)
+
+    async def get_usage(self, response: Any) -> Dict[str, Any]:
+        return await self._provider_for_response(response).get_usage(response)
+
+    def _provider_for_response(self, response: Any) -> LLMAdapter:
+        model = getattr(response, "model", None)
+        if self.fallback and model == getattr(self.fallback, "model", None):
+            return self.fallback
+        if self.primary:
+            return self.primary
+        if self.fallback:
+            return self.fallback
+        raise RuntimeError("No configured LLM provider.")
+
+    async def close(self):
+        for provider in (self.primary, self.fallback):
+            close = getattr(provider, "close", None)
+            if close:
+                await close()

@@ -5,7 +5,7 @@ from openai import OpenAI
 
 load_dotenv()
 
-MODEL_NAME = os.getenv("LLM_MODEL", "gpt-4o-mini")
+MODEL_NAME = os.getenv("OPENAI_MODEL", "gpt-5-nano")
 
 
 def get_client() -> OpenAI:
@@ -31,4 +31,3 @@ def generate_text(prompt: str) -> str:
         raise RuntimeError("OpenAI menghasilkan respons kosong.")
 
     return response.output_text
-

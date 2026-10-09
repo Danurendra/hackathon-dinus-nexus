@@ -11,8 +11,15 @@
  * Data is SYNTHETIC and labeled accordingly.
  */
 
-import { operationalData, getOperationalData } from '@/data/campusTwinExtended';
+import {
+  operationalData,
+  getOperationalData,
+  getTotalBaseEnergy,
+  getTotalActiveIncidents,
+  getBuildingsNeedingAttention,
+} from '@/data/campusTwinExtended';
 import { campusBuildings } from '@/data/campusGeometry';
+import { getDensityData } from '@/lib/layerModel';
 
 export type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
 
@@ -366,3 +373,80 @@ export const defaultGraduationScenario: ScenarioInput = {
   availableBuildings: campusBuildings.map((b) => b.id),
   environment: 'clear',
 };
+
+/* -------------------------------------------------------------------------- */
+/* Baseline vs scenario comparison                                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Current operational baseline, sourced from existing fixtures.
+ * Every field carries an explicit provenance label so it is never confused
+ * with the scenario projection.
+ */
+export interface BaselineMetrics {
+  /** Sum of current synthetic occupancy estimates (people) */
+  occupancy: number;
+  occupancyProvenance: 'SYNTHETIC';
+  /** Total estimated base energy load (kW) */
+  energyKw: number;
+  energyProvenance: 'ESTIMATED';
+  /** Current IT incidents across campus */
+  itIncidents: number;
+  /** Current physical security incidents across campus */
+  securityIncidents: number;
+  incidentsProvenance: 'DERIVED/SYNTHETIC_FIXTURE';
+  /** Buildings currently flagged critical/attention */
+  buildingsNeedingAttention: number;
+  /** Network demand is not measured anywhere (no telemetry yet) */
+  networkMbps: null;
+}
+
+/**
+ * Read the operational baseline from the existing fixtures.
+ *
+ * Occupancy reuses the same synthetic estimate as the density layer so the map
+ * and the comparison panel agree. Energy/incidents come from the operational
+ * fixture functions. No value is hard-coded in the UI.
+ */
+export function getBaselineMetrics(): BaselineMetrics {
+  const { data } = getDensityData();
+  return {
+    occupancy: data.reduce((sum, d) => sum + d.occupied, 0),
+    occupancyProvenance: 'SYNTHETIC',
+    energyKw: getTotalBaseEnergy(),
+    energyProvenance: 'ESTIMATED',
+    itIncidents: getTotalActiveIncidents(),
+    securityIncidents: operationalData
+      ? Object.values(operationalData).reduce((sum, d) => sum + d.securityIncidents, 0)
+      : 0,
+    incidentsProvenance: 'DERIVED/SYNTHETIC_FIXTURE',
+    buildingsNeedingAttention: getBuildingsNeedingAttention().length,
+    networkMbps: null,
+  };
+}
+
+/**
+ * Scenario totals derived from a forecast.
+ * These are SYNTHETIC projections, not measured values.
+ */
+export interface ScenarioMetrics {
+  occupancy: number;
+  energyKw: number;
+  networkMbps: number;
+  /** Allocated venues over capacity (load > 100%) */
+  congestionHotspots: number;
+  /** Allocated venues above 80% load */
+  venuesNeedingAttention: number;
+}
+
+export function getScenarioMetrics(forecast: ScenarioForecast): ScenarioMetrics {
+  return {
+    occupancy: forecast.concurrentTotal,
+    energyKw: forecast.peakPowerKw,
+    networkMbps: forecast.networkDemandMbps,
+    congestionHotspots: forecast.allocations.filter(
+      (a) => a.status === 'overload' || a.status === 'critical'
+    ).length,
+    venuesNeedingAttention: forecast.allocations.filter((a) => a.status !== 'normal').length,
+  };
+}

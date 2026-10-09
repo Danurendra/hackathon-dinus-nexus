@@ -1,4 +1,5 @@
 import os
+import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any, Literal, TypedDict
@@ -43,9 +44,18 @@ from src.conversations.store import (
     list_conversations
 )
 from src.workflows.chat import create_chat_workflow
-from src.llm.litellm_client import LiteLLMClient
+from src.llm.litellm_client import (
+    FallbackLLMClient,
+    LiteLLMClient,
+    OpenAIChatClient,
+)
 from src.config.settings import Settings
-from src.llm.prompts import HELPDESK_SYSTEM_PROMPT
+from src.llm.prompts import HELPDESK_SYSTEM_PROMPT, NETWORK_SYSTEM_PROMPT, CAMPUS_SYSTEM_PROMPT
+from src.data_adapter import search_helpdesk
+from src.network_adapter import search_network, detect_network_anomalies
+from src.campus_adapter import search_campus, get_campus_incidents
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -87,7 +97,17 @@ app.add_middleware(
 
 # Initialize settings and LLM client
 settings = Settings()
-llm_client = LiteLLMClient(settings.llm)
+def _build_llm_client() -> FallbackLLMClient:
+    primary = None
+    fallback = None
+    if settings.llm.base_url and settings.llm.api_key:
+        primary = LiteLLMClient(settings.llm)
+    if settings.llm_fallback_enabled and settings.openai.api_key:
+        fallback = OpenAIChatClient(settings.openai)
+    return FallbackLLMClient(primary, fallback)
+
+
+llm_client = _build_llm_client()
 
 # Chat workflow
 chat_workflow = create_chat_workflow()
@@ -756,7 +776,7 @@ def get_token_metrics(
 
 
 # Chat endpoints
-@app.post("/api/conversations", status_code=201)
+@app.post("/api/conversations", status_code=201, dependencies=[Depends(require_api_key)])
 def create_conversation_endpoint(payload: CreateConversationRequest):
     """Create a new conversation"""
     conversation_id = str(uuid4())
@@ -775,13 +795,13 @@ def create_conversation_endpoint(payload: CreateConversationRequest):
     return conversation
 
 
-@app.get("/api/conversations")
+@app.get("/api/conversations", dependencies=[Depends(require_api_key)])
 def list_conversations_endpoint():
     """List all conversations"""
     return list_conversations()
 
 
-@app.get("/api/conversations/{conversation_id}")
+@app.get("/api/conversations/{conversation_id}", dependencies=[Depends(require_api_key)])
 def get_conversation_detail(conversation_id: str):
     """Get a specific conversation with all messages"""
     conversation = get_conversation(conversation_id)
@@ -794,7 +814,7 @@ def get_conversation_detail(conversation_id: str):
     return conversation
 
 
-@app.delete("/api/conversations/{conversation_id}")
+@app.delete("/api/conversations/{conversation_id}", dependencies=[Depends(require_api_key)])
 def delete_conversation_endpoint(conversation_id: str):
     """Delete a conversation"""
     deleted = delete_conversation(conversation_id)
@@ -803,7 +823,11 @@ def delete_conversation_endpoint(conversation_id: str):
     return {"message": "Conversation deleted successfully"}
 
 
-@app.post("/api/conversations/{conversation_id}/messages", status_code=201)
+@app.post(
+    "/api/conversations/{conversation_id}/messages",
+    status_code=201,
+    dependencies=[Depends(require_api_key)],
+)
 async def send_message(conversation_id: str, payload: SendMessageRequest):
     """Send a message in a conversation"""
     # Get conversation
@@ -811,13 +835,24 @@ async def send_message(conversation_id: str, payload: SendMessageRequest):
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
     
+    # Determine worker from conversation
+    worker = conversation.worker or "it_helpdesk"
+    
+    # Select system prompt based on worker
+    system_prompts = {
+        "it_helpdesk": HELPDESK_SYSTEM_PROMPT,
+        "network_operations": NETWORK_SYSTEM_PROMPT,
+        "campus_operations": CAMPUS_SYSTEM_PROMPT,
+    }
+    system_prompt = system_prompts.get(worker, HELPDESK_SYSTEM_PROMPT)
+    
     # Create user message
     user_message = Message(
         message_id=str(uuid4()),
         conversation_id=conversation_id,
         role=MessageRole.USER,
         content=payload.content,
-        created_at=datetime.now(timezone.utc).isoformat(),
+        created_at=datetime.now(timezone.utc),
         metadata={
             "attachments": payload.attachments,
             "context": payload.context
@@ -842,12 +877,53 @@ async def send_message(conversation_id: str, payload: SendMessageRequest):
         for msg in all_messages
     ]
     
+    # Enrich context with worker-specific data
+    context_enrichment = ""
+    
+    if worker == "it_helpdesk":
+        # Search helpdesk data
+        search_result = search_helpdesk(payload.content)
+        if search_result["matches"]:
+            context_enrichment = "\n\n**Data Terkait (SYNTHETIC):**\n"
+            for dataset, records in search_result["matches"].items():
+                if records:
+                    context_enrichment += f"- {dataset}: {len(records)} item ditemukan\n"
+    
+    elif worker == "network_operations":
+        # Search network data + detect anomalies
+        network_result = search_network(payload.content)
+        anomalies = detect_network_anomalies()
+        
+        context_enrichment = "\n\n**Data Jaringan (SYNTHETIC):**\n"
+        if network_result["devices"]:
+            context_enrichment += f"- Perangkat terkait: {len(network_result['devices'])} device\n"
+        if network_result["zones"]:
+            context_enrichment += f"- Zona terkait: {len(network_result['zones'])} zona\n"
+        if anomalies:
+            context_enrichment += f"- **Anomali terdeteksi: {len(anomalies)}**\n"
+            for a in anomalies[:3]:  # Top 3
+                context_enrichment += f"  • {a['device_id']}: {a['message']}\n"
+    
+    elif worker == "campus_operations":
+        # Search campus data + get incidents
+        campus_result = search_campus(payload.content)
+        incidents = get_campus_incidents()
+        
+        context_enrichment = "\n\n**Data Kampus (SYNTHETIC):**\n"
+        if campus_result["buildings"]:
+            context_enrichment += f"- Gedung terkait: {len(campus_result['buildings'])} building\n"
+        if incidents:
+            context_enrichment += f"- Insiden aktif: {len(incidents)} insiden\n"
+            for inc in incidents[:3]:  # Top 3
+                context_enrichment += f"  • {inc['building_name']}: {inc['count']} {inc['type']} incidents\n"
+    
+    # Add worker context to system prompt
+    worker_context = f"\n\nWorker aktif: {worker}{context_enrichment}"
+    
     # Run chat workflow
     try:
-        # This is a simplified version - in practice, you'd want to properly
-        # integrate with LangGraph workflow
         response = await llm_client.chat_completion([
-            {"role": "system", "content": HELPDESK_SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt + worker_context},
             *workflow_messages
         ])
         
@@ -857,10 +933,11 @@ async def send_message(conversation_id: str, payload: SendMessageRequest):
             conversation_id=conversation_id,
             role=MessageRole.ASSISTANT,
             content=response.content,
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(timezone.utc),
             metadata={
                 "tokens_used": response.usage,
-                "model": response.model
+                "model": response.model,
+                "worker": worker
             }
         )
         
@@ -870,15 +947,19 @@ async def send_message(conversation_id: str, payload: SendMessageRequest):
         # Return the response
         return assistant_message
         
-    except Exception as e:
-        # Create error message
+    except Exception:
+        logger.exception("Conversation LLM request failed for worker=%s", worker)
+        safe_error = (
+            "Maaf, agent belum dapat memproses permintaan. "
+            "Periksa koneksi provider atau coba lagi."
+        )
         error_message = Message(
             message_id=str(uuid4()),
             conversation_id=conversation_id,
             role=MessageRole.ASSISTANT,
-            content=f"Maaf, terjadi kesalahan: {str(e)}",
-            created_at=datetime.now(timezone.utc).isoformat(),
-            metadata={}
+            content=safe_error,
+            created_at=datetime.now(timezone.utc),
+            metadata={"error": "llm_unavailable", "worker": worker}
         )
         add_message(error_message)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=502, detail=safe_error)

@@ -2,11 +2,11 @@
 
 import { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import { ZoomIn, ZoomOut, RotateCcw, Maximize2 } from 'lucide-react';
-import { Button } from '@/components/ui/Button';
 import { FALLBACK_VIEWBOX } from '@/lib/isometric';
 import { getCampusIsoBounds, boundsToViewBox } from '@/lib/spatial';
 import { campusBuildings } from '@/data/campusGeometry';
 import { getPalette, type ColorMode } from '@/lib/campusPalette';
+import { CampusButton } from './CampusTheme';
 
 interface IsometricCanvasProps {
   colorMode: ColorMode;
@@ -221,18 +221,18 @@ export function IsometricCanvas({
 
       {/* Camera controls */}
       <div className="absolute bottom-4 right-4 flex flex-col gap-2">
-        <Button variant="outline" size="sm" onClick={handleZoomIn} aria-label="Zoom in">
+        <CampusButton palette={palette} variant="outline" ariaLabel="Zoom in" onClick={handleZoomIn}>
           <ZoomIn className="h-4 w-4" />
-        </Button>
-        <Button variant="outline" size="sm" onClick={handleZoomOut} aria-label="Zoom out">
+        </CampusButton>
+        <CampusButton palette={palette} variant="outline" ariaLabel="Zoom out" onClick={handleZoomOut}>
           <ZoomOut className="h-4 w-4" />
-        </Button>
-        <Button variant="outline" size="sm" onClick={handleReset} aria-label="Reset view">
+        </CampusButton>
+        <CampusButton palette={palette} variant="outline" ariaLabel="Reset view" onClick={handleReset}>
           <RotateCcw className="h-4 w-4" />
-        </Button>
-        <Button variant="outline" size="sm" onClick={handleFullscreen} aria-label="Toggle fullscreen">
+        </CampusButton>
+        <CampusButton palette={palette} variant="outline" ariaLabel="Toggle fullscreen" onClick={handleFullscreen}>
           <Maximize2 className="h-4 w-4" />
-        </Button>
+        </CampusButton>
       </div>
 
       {/* Scale bar: 50 world meters expressed in projected pixels */}

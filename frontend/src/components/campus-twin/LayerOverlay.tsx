@@ -4,299 +4,174 @@ import { useMemo } from 'react';
 import { project, type IsoPoint } from '@/lib/isometric';
 import { getBuildingAnchor } from '@/lib/spatial';
 import { campusBuildings } from '@/data/campusGeometry';
-import { getOperationalData } from '@/data/campusTwinExtended';
 import { getPalette, type ColorMode } from '@/lib/campusPalette';
-import { keyedRandom } from '@/lib/prng';
 import type { LayerType } from './LayerToggle';
+import {
+  getStatusData,
+  getDensityData,
+  getEnergyData,
+  getIncidentData,
+  getFlowData,
+} from '@/lib/layerModel';
 
 interface LayerOverlayProps {
   colorMode: ColorMode;
   activeLayers: Set<LayerType>;
 }
 
-/**
- * Resolve the shared anchor point (projected) for a building.
- * Returns null when the building has no valid geometry, so callers can skip
- * rendering a marker rather than fabricating a position.
- */
-function getAnchorPoint(building: (typeof campusBuildings)[number]): IsoPoint | null {
+/** Project a building's area-weighted anchor at ground level. */
+function anchorOf(building: (typeof campusBuildings)[number]): IsoPoint | null {
   const anchor = getBuildingAnchor(building);
   if (!anchor) return null;
   return project(anchor[0], anchor[1], 0);
 }
 
+/** Color a normalized 0–1 value on a green→amber→red scale. */
+function scaleColor(p: ReturnType<typeof getPalette>, ratio: number): string {
+  if (ratio >= 0.75) return p.critical;
+  if (ratio >= 0.5) return p.warning;
+  return p.success;
+}
+
 /**
- * Render visualization layers on top of the isometric canvas.
- * Each layer adds visual information about different operational aspects.
+ * Renders each active layer as an independent SVG group.
  *
- * All markers use the same area-weighted building anchor as the building
- * meshes and labels, so overlays stay aligned during zoom and pan.
+ * Groups are self-contained, so toggling one layer never affects the base map
+ * or the other layers. Markers use the same building anchor as the meshes and
+ * labels. Layers with no data render nothing here; the legend reports their
+ * unavailable state explicitly.
  */
 export function LayerOverlay({ colorMode, activeLayers }: LayerOverlayProps) {
   const palette = useMemo(() => getPalette(colorMode), [colorMode]);
 
-  // Status layer: colored rings around buildings
+  // Operational status: semantic rings
   const statusLayer = useMemo(() => {
     if (!activeLayers.has('status')) return null;
-
-    return campusBuildings.map((building) => {
-      const opData = getOperationalData(building.id);
-      if (!opData) return null;
-
-      const projected = getAnchorPoint(building);
-      if (!projected) return null;
-
-      const statusColors: Record<string, string> = {
-        operational: palette.success,
-        attention: palette.warning,
-        critical: palette.critical,
-        maintenance: palette.maintenance,
-      };
-
-      const color = statusColors[opData.status] ?? palette.textLow;
-
+    return getStatusData().map(({ building, status }) => {
+      const p = anchorOf(building);
+      if (!p) return null;
+      const color =
+        status === 'operational' ? palette.success
+        : status === 'attention' ? palette.warning
+        : status === 'critical' ? palette.critical
+        : status === 'maintenance' ? palette.maintenance
+        : palette.textMid;
       return (
-        <circle
-          key={`status-${building.id}`}
-          cx={projected.x}
-          cy={projected.y}
-          r={28}
-          fill="none"
-          stroke={color}
-          strokeWidth={3}
-          opacity={0.7}
-        >
-          {opData.status === 'critical' && (
-            <animate
-              attributeName="opacity"
-              values="0.7;0.3;0.7"
-              dur="1.5s"
-              repeatCount="indefinite"
-            />
+        <circle key={`status-${building.id}`} cx={p.x} cy={p.y} r={30} fill="none" stroke={color} strokeWidth={3} opacity={0.75}>
+          {status === 'critical' && (
+            <animate attributeName="opacity" values="0.75;0.3;0.75" dur="1.5s" repeatCount="indefinite" />
           )}
         </circle>
       );
     });
   }, [activeLayers, colorMode]);
 
-  // Density layer: heatmap circles
+  // Occupancy density: normalized heat circles + occupants
   const densityLayer = useMemo(() => {
     if (!activeLayers.has('density')) return null;
-
-    return campusBuildings.map((building) => {
-      const opData = getOperationalData(building.id);
-      if (!opData) return null;
-
-      const projected = getAnchorPoint(building);
-      if (!projected) return null;
-
-      // Simulate density based on capacity and time of day
-      const density = opData.dailyCapacity !== null && opData.eventCapacity !== null && opData.eventCapacity > 0
-        ? Math.min(1, (opData.dailyCapacity * 0.6) / opData.eventCapacity)
-        : 0.3;
-
-      const radius = 20 + density * 30;
-      const opacity = 0.2 + density * 0.4;
-
+    return getDensityData().data.map(({ building, occupied, ratio }) => {
+      const p = anchorOf(building);
+      if (!p) return null;
+      const color = scaleColor(palette, ratio);
       return (
-        <circle
-          key={`density-${building.id}`}
-          cx={projected.x}
-          cy={projected.y}
-          r={radius}
-          fill={palette.warning}
-          opacity={opacity}
-          style={{ filter: 'blur(8px)' }}
-        />
-      );
-    });
-  }, [activeLayers, colorMode]);
-
-  // Flow layer: animated arrows showing pedestrian movement
-  const flowLayer = useMemo(() => {
-    if (!activeLayers.has('flow')) return null;
-
-    const rand = keyedRandom('flow');
-    const flows: Array<{ from: IsoPoint; to: IsoPoint; intensity: number }> = [];
-
-    // Generate flows between buildings
-    for (let i = 0; i < campusBuildings.length; i++) {
-      for (let j = i + 1; j < campusBuildings.length; j++) {
-        const b1 = campusBuildings[i];
-        const b2 = campusBuildings[j];
-
-        const a1 = getBuildingAnchor(b1);
-        const a2 = getBuildingAnchor(b2);
-        if (!a1 || !a2) continue;
-
-        const from = project(a1[0], a1[1], 0);
-        const to = project(a2[0], a2[1], 0);
-
-        // Distance-based intensity
-        const dist = Math.sqrt((a2[0] - a1[0]) ** 2 + (a2[1] - a1[1]) ** 2);
-        const intensity = Math.max(0.2, 1 - dist / 200);
-
-        if (rand() > 0.3) {
-          flows.push({ from, to, intensity });
-        }
-      }
-    }
-
-    return flows.map((flow, idx) => (
-      <g key={`flow-${idx}`}>
-        <line
-          x1={flow.from.x}
-          y1={flow.from.y}
-          x2={flow.to.x}
-          y2={flow.to.y}
-          stroke={palette.accent}
-          strokeWidth={1 + flow.intensity * 2}
-          opacity={0.4}
-          strokeDasharray="4 4"
-        >
-          <animate
-            attributeName="stroke-dashoffset"
-            values="0;-8"
-            dur={`${2 - flow.intensity}s`}
-            repeatCount="indefinite"
-          />
-        </line>
-        {/* Arrow head */}
-        <circle cx={flow.to.x} cy={flow.to.y} r={2} fill={palette.accent} opacity={0.6} />
-      </g>
-    ));
-  }, [activeLayers, colorMode]);
-
-  // Energy layer: power consumption indicators
-  const energyLayer = useMemo(() => {
-    if (!activeLayers.has('energy')) return null;
-
-    return campusBuildings.map((building) => {
-      const opData = getOperationalData(building.id);
-      if (!opData) return null;
-
-      const projected = getAnchorPoint(building);
-      if (!projected) return null;
-
-      // Normalize energy to 0-1 range (max ~100kW)
-      const normalized = Math.min(1, opData.baseEnergyKw / 100);
-
-      return (
-        <g key={`energy-${building.id}`}>
-          {/* Energy bar */}
-          <rect
-            x={projected.x - 15}
-            y={projected.y - 30}
-            width={30}
-            height={4}
-            fill={palette.textLow}
-            opacity={0.3}
-            rx={2}
-          />
-          <rect
-            x={projected.x - 15}
-            y={projected.y - 30}
-            width={30 * normalized}
-            height={4}
-            fill={normalized > 0.7 ? palette.critical : normalized > 0.4 ? palette.warning : palette.success}
-            rx={2}
-          />
-          {/* Label */}
-          <text
-            x={projected.x}
-            y={projected.y - 35}
-            textAnchor="middle"
-            fontSize={8}
-            fill={palette.textHigh}
-            fontWeight="bold"
-          >
-            {opData.baseEnergyKw} kW
+        <g key={`density-${building.id}`}>
+          <circle cx={p.x} cy={p.y} r={14 + ratio * 28} fill={color} opacity={0.22 + ratio * 0.35} style={{ filter: 'blur(6px)' }} />
+          <text x={p.x} y={p.y + 3} textAnchor="middle" fontSize={9} fontWeight={700} fill={palette.textHigh}>
+            {occupied}
           </text>
         </g>
       );
     });
   }, [activeLayers, colorMode]);
 
-  // Incidents layer: IT incident markers
-  const incidentsLayer = useMemo(() => {
-    if (!activeLayers.has('incidents')) return null;
+  // Pedestrian flow: directional corridors (building → campus center)
+  const flowLayer = useMemo(() => {
+    if (!activeLayers.has('flow')) return null;
+    const flows = getFlowData();
+    if (flows.length === 0) return null;
 
-    return campusBuildings
-      .map((building) => {
-        const opData = getOperationalData(building.id);
-        if (!opData || opData.activeIncidents === 0) return null;
+    return flows.map((flow) => {
+      const pts = flow.points.map(([x, y]) => project(x, y, 0));
+      const path = pts.map((pt, i) => `${i === 0 ? 'M' : 'L'}${pt.x} ${pt.y}`).join(' ');
+      const last = pts[pts.length - 1];
+      const prev = pts[pts.length - 2] ?? last;
+      const angle = Math.atan2(last.y - prev.y, last.x - prev.x);
+      const size = 6;
+      const head = [
+        [last.x, last.y],
+        [last.x - size * Math.cos(angle - 0.4), last.y - size * Math.sin(angle - 0.4)],
+        [last.x - size * Math.cos(angle + 0.4), last.y - size * Math.sin(angle + 0.4)],
+      ].map(([x, y]) => `${x},${y}`).join(' ');
 
-        const projected = getAnchorPoint(building);
-        if (!projected) return null;
-
-        return (
-          <g key={`incident-${building.id}`}>
-            {/* Warning triangle */}
-            <polygon
-              points={`${projected.x},${projected.y - 40} ${projected.x - 8},${projected.y - 28} ${projected.x + 8},${projected.y - 28}`}
-              fill={palette.warning}
-              stroke={palette.textHigh}
-              strokeWidth={1}
-            />
-            <text
-              x={projected.x}
-              y={projected.y - 32}
-              textAnchor="middle"
-              fontSize={10}
-              fill={palette.textHigh}
-              fontWeight="bold"
-            >
-              {opData.activeIncidents}
-            </text>
-          </g>
-        );
-      })
-      .filter(Boolean);
+      return (
+        <g key={`flow-${flow.id}`}>
+          <path d={path} fill="none" stroke={palette.accent} strokeWidth={flow.width / 2} opacity={0.5} strokeDasharray="6 6">
+            <animate attributeName="stroke-dashoffset" values="0;-12" dur="1.6s" repeatCount="indefinite" />
+          </path>
+          <polygon points={head} fill={palette.accent} opacity={0.8} />
+        </g>
+      );
+    });
   }, [activeLayers, colorMode]);
 
-  // Security layer: security incident markers
+  // Energy: normalized bars in kW
+  const energyLayer = useMemo(() => {
+    if (!activeLayers.has('energy')) return null;
+    return getEnergyData().data.map(({ building, kw, ratio }) => {
+      const p = anchorOf(building);
+      if (!p) return null;
+      const color = scaleColor(palette, ratio);
+      return (
+        <g key={`energy-${building.id}`}>
+          <rect x={p.x - 16} y={p.y - 34} width={32} height={5} rx={2} fill={palette.textLow} opacity={0.3} />
+          <rect x={p.x - 16} y={p.y - 34} width={32 * ratio} height={5} rx={2} fill={color} />
+          <text x={p.x} y={p.y - 38} textAnchor="middle" fontSize={8} fontWeight={700} fill={palette.textHigh}>
+            {kw} kW
+          </text>
+        </g>
+      );
+    });
+  }, [activeLayers, colorMode]);
+
+  // IT incidents at their building
+  const incidentsLayer = useMemo(() => {
+    if (!activeLayers.has('incidents')) return null;
+    return getIncidentData('it').data.map(({ building, count }) => {
+      const p = anchorOf(building);
+      if (!p) return null;
+      return (
+        <g key={`incident-${building.id}`}>
+          <polygon
+            points={`${p.x},${p.y - 44} ${p.x - 9},${p.y - 30} ${p.x + 9},${p.y - 30}`}
+            fill={palette.warning}
+            stroke={palette.textHigh}
+            strokeWidth={1}
+          />
+          <text x={p.x} y={p.y - 33} textAnchor="middle" fontSize={10} fontWeight={700} fill={palette.textHigh}>
+            {count}
+          </text>
+        </g>
+      );
+    });
+  }, [activeLayers, colorMode]);
+
+  // Physical security incidents at their building
   const securityLayer = useMemo(() => {
     if (!activeLayers.has('security')) return null;
-
-    return campusBuildings
-      .map((building) => {
-        const opData = getOperationalData(building.id);
-        if (!opData || opData.securityIncidents === 0) return null;
-
-        const projected = getAnchorPoint(building);
-        if (!projected) return null;
-
-        return (
-          <g key={`security-${building.id}`}>
-            {/* Shield icon */}
-            <circle
-              cx={projected.x}
-              cy={projected.y - 35}
-              r={10}
-              fill={palette.critical}
-              opacity={0.8}
-            >
-              <animate
-                attributeName="r"
-                values="10;12;10"
-                dur="2s"
-                repeatCount="indefinite"
-              />
-            </circle>
-            <text
-              x={projected.x}
-              y={projected.y - 32}
-              textAnchor="middle"
-              fontSize={12}
-              fill="white"
-              fontWeight="bold"
-            >
-              !
-            </text>
-          </g>
-        );
-      })
-      .filter(Boolean);
+    return getIncidentData('security').data.map(({ building, count }) => {
+      const p = anchorOf(building);
+      if (!p) return null;
+      return (
+        <g key={`security-${building.id}`}>
+          <circle cx={p.x} cy={p.y - 36} r={11} fill={palette.critical} opacity={0.85}>
+            <animate attributeName="r" values="11;13;11" dur="2s" repeatCount="indefinite" />
+          </circle>
+          <text x={p.x} y={p.y - 32} textAnchor="middle" fontSize={12} fontWeight={700} fill={palette.accentText}>
+            {count}
+          </text>
+        </g>
+      );
+    });
   }, [activeLayers, colorMode]);
 
   return (

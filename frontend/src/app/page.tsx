@@ -20,6 +20,7 @@ import { Card } from '@/components/ui/Card';
 import { ChatInput } from '@/components/chat/ChatInput';
 import { ExecutionTimeline } from '@/components/workflow/ExecutionTimeline';
 import { CampusMap } from '@/components/campus-twin/CampusMap';
+import { apiFetch } from '@/lib/api';
 
 type TaskStatus = 'queued' | 'running' | 'completed' | 'failed';
 
@@ -73,8 +74,6 @@ interface Conversation {
   messages: Message[];
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8000';
-
 function formatDate(value: string) {
   return new Intl.DateTimeFormat('id-ID', {
     dateStyle: 'medium',
@@ -112,14 +111,14 @@ export default function HomePage() {
     setIsLoading(true);
     try {
       // Load tasks
-      const taskResponse = await fetch(`${API_BASE_URL}/api/history`);
+      const taskResponse = await apiFetch('/api/history');
       if (!taskResponse.ok) throw new Error('History task tidak dapat dimuat.');
       const taskData = (await taskResponse.json()) as { items: Task[] };
       setTasks(taskData.items);
       setSelectedTaskId((current) => current ?? taskData.items[0]?.task_id);
 
       // Load conversations
-      const convResponse = await fetch(`${API_BASE_URL}/api/conversations`);
+      const convResponse = await apiFetch('/api/conversations');
       if (!convResponse.ok) throw new Error('History percakapan tidak dapat dimuat.');
       const convData = (await convResponse.json()) as Conversation[];
       setConversations(convData);
@@ -149,7 +148,7 @@ export default function HomePage() {
     setIsSubmitting(true);
     setError(undefined);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/tasks`, {
+      const response = await apiFetch('/api/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -177,7 +176,7 @@ export default function HomePage() {
     setError(undefined);
     
     try {
-      const response = await fetch(`${API_BASE_URL}/api/conversations/${selectedConversationId}/messages`, {
+      const response = await apiFetch(`/api/conversations/${selectedConversationId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -209,7 +208,7 @@ export default function HomePage() {
 
   const handleCreateConversation = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/conversations`, {
+      const response = await apiFetch('/api/conversations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

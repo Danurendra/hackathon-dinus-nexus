@@ -159,7 +159,7 @@ export function BuildingPins({ colorMode, selectedBuildingId, onSelectBuilding }
               textAnchor="middle"
               fontSize={9}
               fontWeight={600}
-              fill={pin.isSelected ? '#FFFFFF' : palette.textHigh}
+              fill={pin.isSelected ? palette.accentText : palette.panelTextHigh}
             >
               {pin.name}
             </text>

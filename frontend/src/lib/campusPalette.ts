@@ -1,6 +1,9 @@
 /**
  * Campus Twin color palettes for Day and Ops modes.
- * All components should reference this file instead of writing hex literals.
+ *
+ * This is the single source of truth for Campus Twin theming. Components must
+ * reference these tokens (via the helpers in CampusTheme.tsx) instead of
+ * hard-coded colors, so both themes stay readable and consistent.
  */
 
 export type ColorMode = 'day' | 'ops';
@@ -34,14 +37,16 @@ export interface CampusPalette {
   // Accents
   accent: string;
   accentSecondary: string;
+  /** Readable text color placed on top of `accent`. */
+  accentText: string;
 
-  // Status
+  // Status (semantic, meaning preserved across themes)
   success: string;
   warning: string;
   critical: string;
   maintenance: string;
 
-  // Text
+  // Map text
   textHigh: string;
   textMid: string;
   textLow: string;
@@ -49,6 +54,39 @@ export interface CampusPalette {
   // Panels
   panelBg: string;
   panelBorder: string;
+  /** Text on panels. */
+  panelTextHigh: string;
+  panelTextMid: string;
+  panelTextMuted: string;
+
+  // Surfaces (cards, sections)
+  surfaceBg: string;
+  surfaceBorder: string;
+  surfaceHover: string;
+
+  // Controls (buttons, toggles)
+  controlBg: string;
+  controlBorder: string;
+  controlText: string;
+  controlHoverBg: string;
+  controlActiveBg: string;
+
+  // Inputs
+  inputBg: string;
+  inputBorder: string;
+  inputText: string;
+  inputPlaceholder: string;
+
+  // Focus
+  focusRing: string;
+
+  // Tooltip
+  tooltipBg: string;
+  tooltipText: string;
+
+  // Disabled controls
+  disabledBg: string;
+  disabledText: string;
 
   // Glow (ops only)
   glow: string;
@@ -78,18 +116,45 @@ export const dayPalette: CampusPalette = {
 
   accent: '#4F46E5',
   accentSecondary: '#0EA5E9',
+  accentText: '#FFFFFF',
 
   success: '#16A34A',
-  warning: '#D97706',
+  warning: '#B45309',
   critical: '#DC2626',
   maintenance: '#7C3AED',
 
   textHigh: '#0F172A',
-  textMid: '#64748B',
-  textLow: '#94A3B8',
+  textMid: '#475569',
+  textLow: '#64748B',
 
   panelBg: '#FFFFFF',
   panelBorder: '#E2E8F0',
+  panelTextHigh: '#0F172A',
+  panelTextMid: '#475569',
+  panelTextMuted: '#64748B',
+
+  surfaceBg: '#FFFFFF',
+  surfaceBorder: '#E2E8F0',
+  surfaceHover: '#F1F5F9',
+
+  controlBg: '#FFFFFF',
+  controlBorder: '#CBD5E1',
+  controlText: '#0F172A',
+  controlHoverBg: '#F1F5F9',
+  controlActiveBg: '#E0E7FF',
+
+  inputBg: '#FFFFFF',
+  inputBorder: '#CBD5E1',
+  inputText: '#0F172A',
+  inputPlaceholder: '#94A3B8',
+
+  focusRing: '#4F46E5',
+
+  tooltipBg: '#0F172A',
+  tooltipText: '#F8FAFC',
+
+  disabledBg: '#F1F5F9',
+  disabledText: '#94A3B8',
 
   glow: 'none',
 };
@@ -118,6 +183,7 @@ export const opsPalette: CampusPalette = {
 
   accent: '#22D3EE',
   accentSecondary: '#5B8CFF',
+  accentText: '#04121F',
 
   success: '#34D399',
   warning: '#FBBF24',
@@ -125,11 +191,37 @@ export const opsPalette: CampusPalette = {
   maintenance: '#A78BFA',
 
   textHigh: '#E6F4FF',
-  textMid: '#8FA9C4',
-  textLow: '#5C7691',
+  textMid: '#B6CADF',
+  textLow: '#8FA9C4',
 
-  panelBg: 'rgba(9, 22, 42, 0.72)',
-  panelBorder: 'rgba(34, 211, 238, 0.22)',
+  panelBg: 'rgba(9, 22, 42, 0.92)',
+  panelBorder: 'rgba(34, 211, 238, 0.28)',
+  panelTextHigh: '#E6F4FF',
+  panelTextMid: '#B6CADF',
+  panelTextMuted: '#8FA9C4',
+
+  surfaceBg: 'rgba(9, 22, 42, 0.92)',
+  surfaceBorder: 'rgba(34, 211, 238, 0.28)',
+  surfaceHover: 'rgba(34, 211, 238, 0.12)',
+
+  controlBg: 'rgba(13, 30, 54, 0.92)',
+  controlBorder: 'rgba(34, 211, 238, 0.35)',
+  controlText: '#E6F4FF',
+  controlHoverBg: 'rgba(34, 211, 238, 0.16)',
+  controlActiveBg: 'rgba(34, 211, 238, 0.24)',
+
+  inputBg: 'rgba(9, 22, 42, 0.92)',
+  inputBorder: 'rgba(34, 211, 238, 0.35)',
+  inputText: '#E6F4FF',
+  inputPlaceholder: '#7F98B3',
+
+  focusRing: '#22D3EE',
+
+  tooltipBg: '#0B1B33',
+  tooltipText: '#E6F4FF',
+
+  disabledBg: 'rgba(148, 163, 184, 0.15)',
+  disabledText: '#7F98B3',
 
   glow: '0 0 24px rgba(34, 211, 238, 0.28)',
 };

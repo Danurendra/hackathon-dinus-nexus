@@ -32,6 +32,7 @@ interface AgentConversation {
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8000';
+const API_KEY = process.env.NEXT_PUBLIC_DINUSNEXUS_API_KEY;
 
 const agents: Agent[] = [
   {
@@ -46,17 +47,17 @@ const agents: Agent[] = [
     id: 'network_operations',
     name: 'Network Operations Agent',
     role: 'Network capacity',
-    description: 'Akan membantu analisis kapasitas dan kesehatan jaringan setelah konektor network tersedia.',
-    capabilities: ['Capacity analysis'],
-    available: false,
+    description: 'Menganalisis kapasitas jaringan, deteksi anomali, dan rekomendasi optimasi infrastruktur.',
+    capabilities: ['Capacity analysis', 'Anomaly detection', 'Network health', 'Recommendations'],
+    available: true,
   },
   {
     id: 'campus_operations',
     name: 'Campus Operations Agent',
     role: 'Event operations',
-    description: 'Akan membantu koordinasi event dan fasilitas melalui data operasional yang terhubung.',
-    capabilities: ['Event planning', 'Resource coordination'],
-    available: false,
+    description: 'Koordinasi event kampus, analisis kapasitas gedung, dan perencanaan sumber daya.',
+    capabilities: ['Event planning', 'Resource coordination', 'Capacity analysis', 'Recommendations'],
+    available: true,
   },
 ];
 
@@ -71,18 +72,22 @@ export function AgentWorkspace() {
     () => agents.find((agent) => agent.id === selectedAgentId) ?? agents[0],
     [selectedAgentId],
   );
+  const apiHeaders: HeadersInit = {
+    'Content-Type': 'application/json',
+    ...(API_KEY ? { 'X-API-Key': API_KEY } : {}),
+  };
 
   useEffect(() => {
     void createConversation();
-  }, []);
+  }, [selectedAgentId]);
 
   async function createConversation() {
     setError(undefined);
     try {
       const response = await fetch(`${API_BASE_URL}/api/conversations`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ worker: 'it_helpdesk', title: 'Agent workspace session' }),
+        headers: apiHeaders,
+        body: JSON.stringify({ worker: selectedAgentId, title: `${selectedAgent.name} session` }),
       });
       if (!response.ok) throw new Error('Conversation agent gagal dibuat.');
       const created = (await response.json()) as { conversation_id: string; messages: AgentMessage[] };
@@ -112,8 +117,8 @@ export function AgentWorkspace() {
       setActivity('waiting');
       const response = await fetch(`${API_BASE_URL}/api/conversations/${conversation.conversation_id}/messages`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content, context: { worker: selectedAgent.id } }),
+        headers: apiHeaders,
+        body: JSON.stringify({ content, context: { worker: selectedAgentId } }),
       });
       if (!response.ok) throw new Error('Agent gagal memberikan respons.');
       const assistantMessage = (await response.json()) as AgentMessage;

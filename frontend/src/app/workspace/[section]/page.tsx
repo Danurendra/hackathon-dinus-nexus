@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { EventPlanningWorkspace } from '@/components/operations/EventPlanningWorkspace';
 import { AgentWorkspace } from '@/components/agents/AgentWorkspace';
+import { TasksWorkspace } from '@/components/tasks/TasksWorkspace';
 
 const sections: Record<string, { title: string; description: string; status: 'available' | 'planned' }> = {
   operations: {
@@ -49,6 +50,7 @@ const sections: Record<string, { title: string; description: string; status: 'av
 export default function WorkspaceSectionPage({ params }: { params: { section: string } }) {
   if (params.section === 'operations') return <EventPlanningWorkspace />;
   if (params.section === 'agents') return <AgentWorkspace />;
+  if (params.section === 'tasks') return <TasksWorkspace />;
 
   const section = sections[params.section] ?? {
     title: 'Workspace',

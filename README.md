@@ -111,8 +111,11 @@ uvicorn src.main:app --reload
 | `CORS_ORIGINS` | tidak | origin frontend yang diizinkan (default `http://localhost:3000,http://127.0.0.1:3000`) |
 | `TEST_DATABASE_URL` | tidak | database terpisah untuk test |
 | `LLM_ENABLED` | tidak | `true` untuk mengaktifkan langkah LLM (default `false`) |
-| `OPENAI_API_KEY` | tidak | wajib bila `LLM_ENABLED=true` |
-| `LLM_MODEL` | tidak | default `gpt-4o-mini` |
+| `OPENAI_API_KEY` | tidak | fallback provider dan wajib bila `LLM_ENABLED=true` |
+| `OPENAI_MODEL` | tidak | model analisis OpenAI, default `gpt-5-nano` |
+| `OPENAI_BASE_URL` | tidak | endpoint OpenAI, default `https://api.openai.com/v1` |
+| `LLM_FALLBACK_ENABLED` | tidak | gunakan OpenAI jika provider utama gagal, default `true` |
+| `LLM_MODEL` | tidak | model provider utama, default `qwen3-coder-flash` |
 | `LLM_MAX_ATTEMPTS` | tidak | batas percobaan provider (default `3`, maks `5`) |
 | `LLM_TIMEOUT_SECONDS` | tidak | timeout per request (default `30`) |
 | `LLM_RETRY_BASE_DELAY` | tidak | basis backoff detik (default `0.5`) |

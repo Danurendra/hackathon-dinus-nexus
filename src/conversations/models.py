@@ -1,6 +1,6 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal
 from enum import Enum
 
 class MessageRole(str, Enum):
@@ -25,10 +25,10 @@ class Conversation(BaseModel):
     messages: List[Message]
 
 class CreateConversationRequest(BaseModel):
-    worker: str = "it_helpdesk"
+    worker: Literal["it_helpdesk", "network_operations", "campus_operations"] = "it_helpdesk"
     title: Optional[str] = None
 
 class SendMessageRequest(BaseModel):
-    content: str
+    content: str = Field(min_length=1, max_length=12000)
     attachments: Optional[List[str]] = None
     context: Optional[Dict[str, Any]] = None
