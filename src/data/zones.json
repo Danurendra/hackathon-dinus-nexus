@@ -1,0 +1,128 @@
+[
+  {
+    "id": "zone-A1",
+    "name": "Laboratorium Komputer 1",
+    "buildingId": "building-A",
+    "type": "lab",
+    "capacity": 30
+  },
+  {
+    "id": "zone-A2",
+    "name": "Laboratorium Komputer 2",
+    "buildingId": "building-A",
+    "type": "lab",
+    "capacity": 25
+  },
+  {
+    "id": "zone-A3",
+    "name": "Ruangan Kelas 1",
+    "buildingId": "building-A",
+    "type": "classroom",
+    "capacity": 40
+  },
+  {
+    "id": "zone-A4",
+    "name": "Ruangan Kelas 2",
+    "buildingId": "building-A",
+    "type": "classroom",
+    "capacity": 35
+  },
+  {
+    "id": "zone-A5",
+    "name": "Ruang Dosen",
+    "buildingId": "building-A",
+    "type": "office",
+    "capacity": 10
+  },
+  {
+    "id": "zone-B1",
+    "name": "Ruangan Kelas Ekonomi 1",
+    "buildingId": "building-B",
+    "type": "classroom",
+    "capacity": 50
+  },
+  {
+    "id": "zone-B2",
+    "name": "Ruangan Kelas Ekonomi 2",
+    "buildingId": "building-B",
+    "type": "classroom",
+    "capacity": 45
+  },
+  {
+    "id": "zone-B3",
+    "name": "Laboratorium Ekonomi",
+    "buildingId": "building-B",
+    "type": "lab",
+    "capacity": 20
+  },
+  {
+    "id": "zone-B4",
+    "name": "Ruang Dosen Ekonomi",
+    "buildingId": "building-B",
+    "type": "office",
+    "capacity": 8
+  },
+  {
+    "id": "zone-C1",
+    "name": "Laboratorium Jaringan",
+    "buildingId": "building-C",
+    "type": "lab",
+    "capacity": 25
+  },
+  {
+    "id": "zone-C2",
+    "name": "Laboratorium Basis Data",
+    "buildingId": "building-C",
+    "type": "lab",
+    "capacity": 30
+  },
+  {
+    "id": "zone-C3",
+    "name": "Ruangan Kelas Komputer 1",
+    "buildingId": "building-C",
+    "type": "classroom",
+    "capacity": 40
+  },
+  {
+    "id": "zone-C4",
+    "name": "Ruangan Kelas Komputer 2",
+    "buildingId": "building-C",
+    "type": "classroom",
+    "capacity": 35
+  },
+  {
+    "id": "zone-C5",
+    "name": "Ruang Dosen Komputer",
+    "buildingId": "building-C",
+    "type": "office",
+    "capacity": 12
+  },
+  {
+    "id": "zone-C6",
+    "name": "Ruangan Server",
+    "buildingId": "building-C",
+    "type": "storage",
+    "capacity": 1
+  },
+  {
+    "id": "zone-D1",
+    "name": "Ruangan Kelas Hukum 1",
+    "buildingId": "building-D",
+    "type": "classroom",
+    "capacity": 30
+  },
+  {
+    "id": "zone-D2",
+    "name": "Ruangan Kelas Hukum 2",
+    "buildingId": "building-D",
+    "type": "classroom",
+    "capacity": 25
+  },
+  {
+    "id": "zone-D3",
+    "name": "Ruang Dosen Hukum",
+    "buildingId": "building-D",
+    "type": "office",
+    "capacity": 6
+  }
+]

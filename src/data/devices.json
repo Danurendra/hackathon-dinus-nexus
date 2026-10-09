@@ -1,0 +1,252 @@
+[
+  {
+    "id": "device-AP-A1-01",
+    "name": "Access Point A1-01",
+    "type": "access-point",
+    "zoneId": "zone-A1",
+    "status": "online",
+    "lastSeen": "2026-10-09T10:00:00Z",
+    "ipAddress": "192.168.1.101",
+    "macAddress": "00:1A:2B:3C:4D:5E"
+  },
+  {
+    "id": "device-AP-A1-02",
+    "name": "Access Point A1-02",
+    "type": "access-point",
+    "zoneId": "zone-A1",
+    "status": "online",
+    "lastSeen": "2026-10-09T10:05:00Z",
+    "ipAddress": "192.168.1.102",
+    "macAddress": "00:1A:2B:3C:4D:5F"
+  },
+  {
+    "id": "device-SW-A1-01",
+    "name": "Switch A1-01",
+    "type": "switch",
+    "zoneId": "zone-A1",
+    "status": "online",
+    "lastSeen": "2026-10-09T09:55:00Z",
+    "ipAddress": "192.168.1.201",
+    "macAddress": "00:1A:2B:3C:4D:60"
+  },
+  {
+    "id": "device-GW-A1-01",
+    "name": "Gateway A1-01",
+    "type": "gateway",
+    "zoneId": "zone-A1",
+    "status": "online",
+    "lastSeen": "2026-10-09T10:10:00Z",
+    "ipAddress": "192.168.1.1",
+    "macAddress": "00:1A:2B:3C:4D:61"
+  },
+  {
+    "id": "device-AP-A2-01",
+    "name": "Access Point A2-01",
+    "type": "access-point",
+    "zoneId": "zone-A2",
+    "status": "online",
+    "lastSeen": "2026-10-09T09:45:00Z",
+    "ipAddress": "192.168.2.101",
+    "macAddress": "00:1A:2B:3C:4D:62"
+  },
+  {
+    "id": "device-AP-A2-02",
+    "name": "Access Point A2-02",
+    "type": "access-point",
+    "zoneId": "zone-A2",
+    "status": "offline",
+    "lastSeen": "2026-10-08T15:30:00Z",
+    "ipAddress": "192.168.2.102",
+    "macAddress": "00:1A:2B:3C:4D:63"
+  },
+  {
+    "id": "device-SW-A2-01",
+    "name": "Switch A2-01",
+    "type": "switch",
+    "zoneId": "zone-A2",
+    "status": "online",
+    "lastSeen": "2026-10-09T10:02:00Z",
+    "ipAddress": "192.168.2.201",
+    "macAddress": "00:1A:2B:3C:4D:64"
+  },
+  {
+    "id": "device-GW-A2-01",
+    "name": "Gateway A2-01",
+    "type": "gateway",
+    "zoneId": "zone-A2",
+    "status": "online",
+    "lastSeen": "2026-10-09T10:08:00Z",
+    "ipAddress": "192.168.2.1",
+    "macAddress": "00:1A:2B:3C:4D:65"
+  },
+  {
+    "id": "device-AP-A3-01",
+    "name": "Access Point A3-01",
+    "type": "access-point",
+    "zoneId": "zone-A3",
+    "status": "online",
+    "lastSeen": "2026-10-09T09:50:00Z",
+    "ipAddress": "192.168.3.101",
+    "macAddress": "00:1A:2B:3C:4D:66"
+  },
+  {
+    "id": "device-SW-A3-01",
+    "name": "Switch A3-01",
+    "type": "switch",
+    "zoneId": "zone-A3",
+    "status": "online",
+    "lastSeen": "2026-10-09T10:03:00Z",
+    "ipAddress": "192.168.3.201",
+    "macAddress": "00:1A:2B:3C:4D:67"
+  },
+  {
+    "id": "device-GW-A3-01",
+    "name": "Gateway A3-01",
+    "type": "gateway",
+    "zoneId": "zone-A3",
+    "status": "online",
+    "lastSeen": "2026-10-09T10:07:00Z",
+    "ipAddress": "192.168.3.1",
+    "macAddress": "00:1A:2B:3C:4D:68"
+  },
+  {
+    "id": "device-AP-B1-01",
+    "name": "Access Point B1-01",
+    "type": "access-point",
+    "zoneId": "zone-B1",
+    "status": "online",
+    "lastSeen": "2026-10-09T10:01:00Z",
+    "ipAddress": "192.168.4.101",
+    "macAddress": "00:1A:2B:3C:4D:69"
+  },
+  {
+    "id": "device-SW-B1-01",
+    "name": "Switch B1-01",
+    "type": "switch",
+    "zoneId": "zone-B1",
+    "status": "online",
+    "lastSeen": "2026-10-09T10:04:00Z",
+    "ipAddress": "192.168.4.201",
+    "macAddress": "00:1A:2B:3C:4D:70"
+  },
+  {
+    "id": "device-GW-B1-01",
+    "name": "Gateway B1-01",
+    "type": "gateway",
+    "zoneId": "zone-B1",
+    "status": "online",
+    "lastSeen": "2026-10-09T10:09:00Z",
+    "ipAddress": "192.168.4.1",
+    "macAddress": "00:1A:2B:3C:4D:71"
+  },
+  {
+    "id": "device-AP-C1-01",
+    "name": "Access Point C1-01",
+    "type": "access-point",
+    "zoneId": "zone-C1",
+    "status": "online",
+    "lastSeen": "2026-10-09T09:58:00Z",
+    "ipAddress": "192.168.5.101",
+    "macAddress": "00:1A:2B:3C:4D:72"
+  },
+  {
+    "id": "device-SW-C1-01",
+    "name": "Switch C1-01",
+    "type": "switch",
+    "zoneId": "zone-C1",
+    "status": "maintenance",
+    "lastSeen": "2026-10-08T14:00:00Z",
+    "ipAddress": "192.168.5.201",
+    "macAddress": "00:1A:2B:3C:4D:73"
+  },
+  {
+    "id": "device-GW-C1-01",
+    "name": "Gateway C1-01",
+    "type": "gateway",
+    "zoneId": "zone-C1",
+    "status": "online",
+    "lastSeen": "2026-10-09T10:06:00Z",
+    "ipAddress": "192.168.5.1",
+    "macAddress": "00:1A:2B:3C:4D:74"
+  },
+  {
+    "id": "device-AP-C2-01",
+    "name": "Access Point C2-01",
+    "type": "access-point",
+    "zoneId": "zone-C2",
+    "status": "online",
+    "lastSeen": "2026-10-09T10:00:00Z",
+    "ipAddress": "192.168.6.101",
+    "macAddress": "00:1A:2B:3C:4D:75"
+  },
+  {
+    "id": "device-SW-C2-01",
+    "name": "Switch C2-01",
+    "type": "switch",
+    "zoneId": "zone-C2",
+    "status": "online",
+    "lastSeen": "2026-10-09T10:03:00Z",
+    "ipAddress": "192.168.6.201",
+    "macAddress": "00:1A:2B:3C:4D:76"
+  },
+  {
+    "id": "device-GW-C2-01",
+    "name": "Gateway C2-01",
+    "type": "gateway",
+    "zoneId": "zone-C2",
+    "status": "online",
+    "lastSeen": "2026-10-09T10:08:00Z",
+    "ipAddress": "192.168.6.1",
+    "macAddress": "00:1A:2B:3C:4D:77"
+  },
+  {
+    "id": "device-AP-D1-01",
+    "name": "Access Point D1-01",
+    "type": "access-point",
+    "zoneId": "zone-D1",
+    "status": "online",
+    "lastSeen": "2026-10-09T09:55:00Z",
+    "ipAddress": "192.168.7.101",
+    "macAddress": "00:1A:2B:3C:4D:78"
+  },
+  {
+    "id": "device-SW-D1-01",
+    "name": "Switch D1-01",
+    "type": "switch",
+    "zoneId": "zone-D1",
+    "status": "online",
+    "lastSeen": "2026-10-09T10:02:00Z",
+    "ipAddress": "192.168.7.201",
+    "macAddress": "00:1A:2B:3C:4D:79"
+  },
+  {
+    "id": "device-GW-D1-01",
+    "name": "Gateway D1-01",
+    "type": "gateway",
+    "zoneId": "zone-D1",
+    "status": "online",
+    "lastSeen": "2026-10-09T10:07:00Z",
+    "ipAddress": "192.168.7.1",
+    "macAddress": "00:1A:2B:3C:4D:80"
+  },
+  {
+    "id": "device-SRV-C6-01",
+    "name": "Server C6-01",
+    "type": "server",
+    "zoneId": "zone-C6",
+    "status": "online",
+    "lastSeen": "2026-10-09T09:48:00Z",
+    "ipAddress": "192.168.8.101",
+    "macAddress": "00:1A:2B:3C:4D:81"
+  },
+  {
+    "id": "device-PRN-C3-01",
+    "name": "Printer C3-01",
+    "type": "printer",
+    "zoneId": "zone-C3",
+    "status": "online",
+    "lastSeen": "2026-10-09T10:05:00Z",
+    "ipAddress": "192.168.9.101",
+    "macAddress": "00:1A:2B:3C:4D:82"
+  }
+]

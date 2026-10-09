@@ -1,0 +1,30 @@
+[
+  {
+    "id": "building-A",
+    "name": "Gedung A - Fakultas Teknik",
+    "location": "Lantai 1, Jalan Kampus",
+    "floors": 5,
+    "zones": ["zone-A1", "zone-A2", "zone-A3", "zone-A4", "zone-A5"]
+  },
+  {
+    "id": "building-B",
+    "name": "Gedung B - Fakultas Ekonomi",
+    "location": "Lantai 2, Jalan Kampus",
+    "floors": 4,
+    "zones": ["zone-B1", "zone-B2", "zone-B3", "zone-B4"]
+  },
+  {
+    "id": "building-C",
+    "name": "Gedung C - Fakultas Ilmu Komputer",
+    "location": "Lantai 3, Jalan Kampus",
+    "floors": 6,
+    "zones": ["zone-C1", "zone-C2", "zone-C3", "zone-C4", "zone-C5", "zone-C6"]
+  },
+  {
+    "id": "building-D",
+    "name": "Gedung D - Fakultas Hukum",
+    "location": "Lantai 4, Jalan Kampus",
+    "floors": 3,
+    "zones": ["zone-D1", "zone-D2", "zone-D3"]
+  }
+]
