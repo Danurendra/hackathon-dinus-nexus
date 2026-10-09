@@ -6,6 +6,67 @@ recorded run.
 
 ---
 
+## 2026-10-09 — Optional LLM `analyze_evidence` step (Structured Outputs)
+
+**Goal.** Integrate OpenAI into the LangGraph workflow as an optional, validated
+analysis step, without letting the model invent facts/source IDs or masking
+failures.
+
+### Changes
+
+| Area | Files | Notes |
+|---|---|---|
+| LLM analysis | `src/llm/analysis.py` (new) | bounded digest, allow-listed fields, prompt, `AnalysisOutput` schema, `analyze_findings`, `LLMAnalysisError`, usage capture |
+| Workflow | `src/main.py` | new `analyze_evidence` node, `StepFailedError`, `llm_enabled()`, `analysis` in state, `_persist_failed_task`, 3-node graph |
+| Tests | `tests/test_llm_analysis.py` (new), `tests/test_workflow.py`, `tests/test_api.py`, `tests/test_persistence.py`, `pytest.ini` | 42 collected (41 passed, 1 live skipped) |
+| Config | `.env.example`, `pytest.ini` | `LLM_ENABLED=false` default; `live_llm` marker |
+| Docs | `README.md`, `docs/API.md`, `docs/ARCHITECTURE.md`, `docs/TESTING.md` | analysis field, failure behavior, trust boundaries |
+
+### Design decisions
+
+- **Opt-in.** `LLM_ENABLED` defaults to `false`, so tests and CI stay free and
+  deterministic. Demo enables it explicitly.
+- **Trust boundary.** `facts`/`evidence` are computed only from the data adapter.
+  The model receives at most 6 records/dataset with allow-listed, truncated
+  fields and is never asked for source IDs (so it cannot invent them).
+- **Structured Outputs.** `client.responses.parse(text_format=AnalysisOutput)`
+  with a strict Pydantic schema; invalid output raises `LLMAnalysisError`.
+- **Fail loud.** LLM failure → `StepFailedError` → task `failed` with
+  `LLM_ANALYSIS_FAILED` and a failed `analyze_evidence` step; never `completed`.
+- **Token efficiency.** Bounded digest; provider usage stored in
+  `result.analysis.usage` (`{"status": "unavailable"}` when absent). No prompt or
+  credential logging.
+
+### Commands and actual results
+
+```text
+python -m py_compile src/main.py src/llm/analysis.py
+  -> compile ok
+pytest
+  -> 41 passed, 1 skipped in 3.76s
+
+# live verification (paid, one call)
+analyze_findings(zone-A1 Wi-Fi report, access_point findings)
+  -> status: OK
+  -> model: gpt-4o-mini
+  -> usage: {input_tokens: 612, output_tokens: 181}
+  -> summary: "Gangguan koneksi Wi-Fi di Laboratorium Komputer 1 telah dilaporkan."
+```
+
+### Open issues
+
+- No retry/backoff around provider errors yet.
+- LLM step runs synchronously inside the request.
+- Live LLM test is opt-in (`RUN_LIVE_LLM=1`); not part of default CI.
+
+### Next steps
+
+1. Bounded retry for transient provider errors (rate limit/timeout).
+2. Decide whether to expose `LLM_ENABLED` per request vs. environment.
+3. Consider background execution for long LLM calls.
+
+---
+
 ## 2026-10-09 — Deterministic Helpdesk slice: tests, migrations, auth, docs
 
 **Goal.** Reach a verifiable end-to-end deterministic Helpdesk slice: report →

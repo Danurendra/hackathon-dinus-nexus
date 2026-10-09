@@ -150,7 +150,8 @@ Kontrak API perlu memakai ID stabil dan state eksplisit. Format final endpoint/D
 | Datasets | `src/data/*.json` | implemented | 59 synthetic records, labeled `SYNTHETIC` |
 | Persistence | `src/db/session.py`, `src/db/models.py` | implemented | SQLAlchemy engine, session, `Task` model |
 | Migrations | `alembic/` | implemented | Baseline migration `0001_create_tasks` |
-| LLM client | `src/llm/client.py` | implemented, not wired | OpenAI Responses API wrapper (verified once, live) |
+| LLM client | `src/llm/client.py` | implemented | OpenAI Responses API wrapper |
+| LLM analysis | `src/llm/analysis.py` | implemented (opt-in) | Bounded evidence digest + Structured Outputs |
 
 ## Request flow
 
@@ -164,8 +165,10 @@ FastAPI  POST /api/tasks
 PostgreSQL  INSERT task (status=queued)          ← src/db
       │
       ▼
-LangGraph  inspect_report → prepare_result       ← src/main.py
-      │            │
+LangGraph  inspect_report → analyze_evidence → prepare_result   ← src/main.py
+      │            │                 │
+      │            │                 └── analyze_findings(...)   ← src/llm/analysis.py
+      │            │                        (bounded digest → OpenAI Structured Outputs)
       │            └── search_helpdesk(query, zone_id, device_type)  ← src/data_adapter.py
       │                        │
       │                        └── src/data/*.json (synthetic)
@@ -187,18 +190,33 @@ worker or queue yet; long-running execution is a future concern.
 |---|---|---|
 | `task_id`, `description`, `location`, `device_type` | API (input) | `inspect_report` |
 | `status` | nodes | API |
-| `steps` | `inspect_report`, then appended by `prepare_result` | API / persistence |
-| `findings` | `inspect_report` | `prepare_result` |
+| `steps` | `inspect_report`, then appended by each node | API / persistence |
+| `findings` | `inspect_report` | `analyze_evidence`, `prepare_result` |
+| `analysis` | `analyze_evidence` (empty when disabled) | `prepare_result` |
 | `result` | `prepare_result` | API / persistence |
 
 Nodes:
 
 1. `inspect_report` — calls `search_helpdesk` with the request `location`
    (`zone_id`) and `device_type`; records source IDs; sets status `running`.
-2. `prepare_result` — reads `findings` (guarding against the previously observed
+2. `analyze_evidence` — **optional**. When `LLM_ENABLED` is not true, records a
+   `skipped` step and returns an empty `analysis`. When enabled, calls
+   `analyze_findings` (bounded digest → OpenAI Structured Outputs). On provider or
+   validation failure it raises `StepFailedError` carrying a `failed` step, so the
+   task is persisted as `failed` and never as `completed`.
+3. `prepare_result` — reads `findings` (guarding against the previously observed
    `KeyError: 'findings'`), builds `facts`, de-duplicated `evidence`,
    `interpretation`, `uncertainty`, and `recommendations`, and sets status
    `completed`. Every result carries `data_label: SYNTHETIC`.
+
+### Trust boundaries
+
+- `facts` and `evidence` are **always** derived from the data adapter. The LLM
+  cannot add, remove, or invent records or source IDs — it never receives an
+  instruction to emit IDs and its output is stored separately under
+  `result.analysis`.
+- The provider receives only allow-listed, truncated fields from at most 6 records
+  per dataset.
 
 ## Component boundaries
 
@@ -221,14 +239,15 @@ Nodes:
 | Task not found | `404` |
 | Database unavailable on save/read | `503` |
 | Workflow raises | task persisted as `failed` with `error.code=WORKFLOW_FAILED`, API returns `500`; never `completed` |
+| LLM analysis fails (provider/validation) | task persisted as `failed` with `error.code=LLM_ANALYSIS_FAILED`, `analyze_evidence` step marked `failed`, API returns `500` |
 | No matching records | `completed` with empty `facts`/`evidence` — not a diagnosis |
 
 ## Deliberate limitations
 
 - Retrieval is keyword + synonym matching, **not semantic search**. Words such as
   `tidak` are not stop words and can cause incidental matches.
-- LLM analysis (`analyze_evidence`) is not wired into the graph yet; the graph is
-  deterministic and cheap to test.
+- LLM analysis is **opt-in** (`LLM_ENABLED=true`) and runs synchronously in the
+  request; the default deterministic path stays free and easy to test.
 - `Base.metadata.create_all()` still runs at API startup for developer
   convenience. Alembic is the managed migration path; `create_all` should be
   removed when deployment begins.

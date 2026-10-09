@@ -1,6 +1,6 @@
 # Testing — DinusNexus Backend
 
-> Status: **implemented and passing**. Last run: 2026-10-09, **29 passed**.
+> Status: **implemented and passing**. Last run: 2026-10-09, **41 passed, 1 skipped**.
 
 ## Prerequisites
 
@@ -64,11 +64,13 @@ Environment setup in `conftest.py` runs before importing `src.*`, pointing
 - Unmatched query and empty query return empty `matches`.
 - Unknown zone returns no records.
 
-### `tests/test_workflow.py` (5)
+### `tests/test_workflow.py` (6)
 - `inspect_report` collects source IDs and marks the step completed.
 - `prepare_result` builds facts/evidence and de-duplicates evidence.
-- Full graph end-to-end completes with the expected two steps and honors
+- Full graph end-to-end completes with the expected three steps and honors
   filters.
+- `analyze_evidence` is `skipped` when the LLM is disabled and `result.analysis`
+  is `null`.
 - Graph without location context still completes.
 - Empty result is **not** treated as a diagnosis (empty facts/evidence).
 
@@ -84,19 +86,31 @@ Environment setup in `conftest.py` runs before importing `src.*`, pointing
 - History lists tasks newest-first.
 - `CreateTaskInput` defaults.
 
-### `tests/test_persistence.py` (4)
+### `tests/test_persistence.py` (5)
 - Result survives a new DB session (engine disposed to simulate restart).
 - History survives a new DB session.
 - Workflow failure is persisted as `failed` (never `completed`) and returns
   `500` with `WORKFLOW_FAILED`.
 - Database outage on save returns `503`.
+- LLM failure is persisted as `failed` with `LLM_ANALYSIS_FAILED` and a failed
+  `analyze_evidence` step.
+
+### `tests/test_llm_analysis.py` (10 + 1 live)
+- Evidence digest is bounded (max records per dataset) and field-filtered
+  (allow-list; e.g. `macAddress` never sent).
+- Prompt handles empty findings and includes real hits.
+- `analyze_findings` returns a validated result and usage.
+- Provider error and missing/malformed output raise `LLMAnalysisError`.
+- Usage reported as `unavailable` when the provider omits it.
+- `analyze_evidence` node: skipped when disabled, completed with usage when
+  enabled, and raises `StepFailedError` with a failed step on failure.
+- `test_live_analyze_findings` — opt-in real API call (skipped by default).
 
 ## Actual results
 
 ```
 $ pytest
-.............................                                            [100%]
-29 passed in 2.52s
+41 passed, 1 skipped in 3.76s
 ```
 
 ## Smoke test (manual)
@@ -123,17 +137,24 @@ curl -s http://127.0.0.1:8000/api/history -H "X-API-Key: $DINUSNEXUS_API_KEY"
 
 ## Mocked vs live LLM
 
-- The deterministic workflow tests **never** call an external provider.
-- `src/llm/client.py` is not yet part of the workflow, so there are no
-  provider-dependent tests in CI.
-- A manual live check was performed once:
-  `generate_text("Reply with exactly: DINUSNEXUS_LLM_OK")` with
-  `LLM_MODEL=gpt-4o-mini` returned `DINUSNEXUS_LLM_OK`. This is a paid API call;
-  it is **not** part of the routine suite. When LLM integration lands, live calls
-  must be marked so the default `pytest` run stays free and deterministic.
+- The routine suite **never** calls an external provider; `conftest.py` forces
+  `LLM_ENABLED=false` and the LLM tests use fake clients/monkeypatched analyzers.
+- The live test is marked `live_llm` and only runs with an explicit opt-in:
+
+```bash
+RUN_LIVE_LLM=1 LLM_ENABLED=true pytest -m live_llm -q
+```
+
+- Manual live checks performed once each:
+  - `generate_text("Reply with exactly: DINUSNEXUS_LLM_OK")` → `DINUSNEXUS_LLM_OK`.
+  - `analyze_findings(...)` for the zone-A1 Wi-Fi case → validated summary,
+    `usage: {input_tokens: 612, output_tokens: 181}` (paid call).
+- Run the default `pytest` for free, deterministic CI; use the live marker only
+  when explicitly validating the provider.
 
 ## Not yet tested
 
 - Alembic upgrade is verified manually (`docs/DEVELOPMENT_LOG.md`) but has no
   automated test.
 - `waiting_for_approval` / `cancelled` states are not implemented.
+- No retry/backoff around LLM provider errors yet.

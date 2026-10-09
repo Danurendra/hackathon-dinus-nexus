@@ -28,10 +28,13 @@ Stack backend yang **sudah diputuskan** dan tidak boleh diganti tanpa keputusan 
 - Python 3.12, FastAPI, LangGraph, PostgreSQL 16.
 - SQLAlchemy 2.x, Alembic, Pydantic, python-dotenv/pydantic-settings.
 - pytest + httpx untuk test; Docker untuk PostgreSQL lokal.
-- OpenAI SDK tersedia untuk fitur LLM, tetapi workflow Helpdesk saat ini
-  **deterministik**; jangan menambah provider LLM eksternal tanpa persetujuan.
+- OpenAI SDK dipakai untuk langkah opsional `analyze_evidence`
+  (`LLM_ENABLED=true`). Workflow default tetap deterministik; jangan menambah
+  provider LLM lain atau memanggil API berbayar di test rutin tanpa persetujuan.
 - Dataset JSON sintetis di `src/data/` adalah satu-satunya sumber record
   operasional saat ini. Jangan menampilkan data simulasi sebagai data live.
+- Fakta/evidence hanya berasal dari data adapter; LLM tidak boleh mengarang
+  record atau source ID.
 
 ## Struktur direktori
 
@@ -42,9 +45,10 @@ src/data_adapter.py    # retrieval keyword/synonym atas dataset JSON
 src/data/*.json        # dataset sintetis (buildings, zones, devices, incidents)
 src/db/session.py      # SQLAlchemy engine/SessionLocal/Base
 src/db/models.py       # model Task
-src/llm/client.py      # wrapper OpenAI Responses API (belum di workflow)
+src/llm/client.py      # wrapper OpenAI Responses API
+src/llm/analysis.py    # node LLM opsional (bounded digest + Structured Outputs)
 alembic/               # konfigurasi + migrasi skema
-tests/                 # pytest (adapter, workflow, api, persistence)
+tests/                 # pytest (adapter, workflow, api, persistence, llm)
 docs/                  # dokumentasi teknis
 check_data.py          # validasi relasi dataset
 ```

@@ -12,7 +12,7 @@
 | PostgreSQL persistence + Alembic migration | implemented, tested |
 | API key authentication (`X-API-Key`) | implemented, tested |
 | Input validation & error handling | implemented, tested |
-| LLM/OpenAI integration ke workflow | client implemented, **belum diintegrasikan** (planned) |
+| LLM `analyze_evidence` (opsional, `LLM_ENABLED=true`) | implemented, tested (mock) + diverifikasi live 1x |
 | Campus Twin 2D, upload dokumen, 7 role lain | planned |
 | API/DB/Testing/Development docs | implemented |
 
@@ -98,7 +98,8 @@ uvicorn src.main:app --reload
 | `DATABASE_URL` | ya | koneksi `postgresql+psycopg://…` |
 | `DINUSNEXUS_API_KEY` | ya | API key backend (header `X-API-Key`) |
 | `TEST_DATABASE_URL` | tidak | database terpisah untuk test |
-| `OPENAI_API_KEY` | tidak | hanya untuk fitur LLM mendatang |
+| `LLM_ENABLED` | tidak | `true` untuk mengaktifkan langkah LLM (default `false`) |
+| `OPENAI_API_KEY` | tidak | wajib bila `LLM_ENABLED=true` |
 | `LLM_MODEL` | tidak | default `gpt-4o-mini` |
 
 Nilai asli tidak boleh masuk source code, dokumentasi, log, atau Git.
@@ -112,7 +113,10 @@ Nilai asli tidak boleh masuk source code, dokumentasi, log, atau Git.
 | GET | `/api/tasks/{task_id}` | `X-API-Key` | baca task |
 | GET | `/api/history` | `X-API-Key` | daftar task (terbaru dulu) |
 
-Kontrak lengkap: [`docs/API.md`](docs/API.md).
+Kontrak lengkap: [`docs/API.md`](docs/API.md). Langkah LLM bersifat opsional
+(`LLM_ENABLED=true`); ketika aktif, node `analyze_evidence` menganalisis bukti
+dengan OpenAI dan hasilnya divalidasi (Structured Outputs). Jika gagal, task
+tetap tercatat sebagai `failed`.
 
 ## Menjalankan test
 
@@ -131,7 +135,9 @@ demo. Hasil terakhir: **29 passed**. Skenario dan fixture: [`docs/TESTING.md`](d
   sinonim. Kata seperti `tidak` belum menjadi stop word sehingga bisa muncul
   kecocokan insidental.
 - **Sinkron, tanpa background worker**: workflow berjalan di dalam request.
-- **LLM belum terhubung** ke workflow; node `analyze_evidence` masih planned.
+- **LLM opsional**: default deterministik. Langkah `analyze_evidence` hanya jalan
+  bila `LLM_ENABLED=true`; kegagalan LLM membuat task `failed` (tidak pernah
+  `completed`). Fakta/evidence tetap berasal dari dataset, bukan dari model.
 - **Run/step belum ternormalisasi**: steps disimpan sebagai JSON di tabel
   `tasks`; belum ada tabel `task_runs`/`execution_steps` terpisah.
 - **`create_all` saat startup**: masih dipakai untuk kenyamanan dev; Alembic

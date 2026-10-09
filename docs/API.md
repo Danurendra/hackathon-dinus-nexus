@@ -119,6 +119,13 @@ List persisted tasks, newest first.
       "source_ids": ["device-AP-A1-01", "device-AP-A1-02", "incident-001", "incident-008", "zone-A1", "building-A"]
     },
     {
+      "step_id": "analyze_evidence",
+      "name": "Analyze evidence with LLM",
+      "status": "completed",
+      "model": "gpt-4o-mini",
+      "usage": { "input_tokens": 612, "output_tokens": 181 }
+    },
+    {
       "step_id": "prepare_result",
       "name": "Prepare result from synthetic data",
       "status": "completed",
@@ -129,12 +136,20 @@ List persisted tasks, newest first.
     "facts": [
       { "dataset": "devices", "record": { "id": "device-AP-A1-01", "…": "…" } }
     ],
-    "interpretation": ["Found 8 matching records in synthetic datasets."],
-    "uncertainty": ["These records are synthetic and do not represent verified live campus conditions."],
-    "recommendations": ["Verify the relevant device and incident details before taking action."],
     "evidence": [
       { "source_id": "device-AP-A1-01", "dataset": "devices" }
     ],
+    "analysis": {
+      "summary": "Gangguan koneksi Wi-Fi di Laboratorium Komputer 1 telah dilaporkan.",
+      "findings": ["…"],
+      "recommendations": ["…"],
+      "uncertainty": ["Data bersifat sintetis."],
+      "model": "gpt-4o-mini",
+      "usage": { "input_tokens": 612, "output_tokens": 181 }
+    },
+    "interpretation": ["Found 8 matching records in synthetic datasets.", "…"],
+    "uncertainty": ["These records are synthetic and do not represent verified live campus conditions."],
+    "recommendations": ["Verify the relevant device and incident details before taking action."],
     "data_label": "SYNTHETIC"
   },
   "error": null
@@ -143,16 +158,40 @@ List persisted tasks, newest first.
 
 ### Field notes
 
-- `steps` — execution timeline. Every step carries an explicit `status`. Only
-  steps that actually ran are present.
-- `result.facts` — original dataset records, not model-generated text.
-- `result.evidence` — `source_id` + `dataset`, de-duplicated.
-- `result.interpretation` — human-readable synthesis, kept separate from facts.
-- `result.uncertainty` — always states the data is synthetic.
-- `result.recommendations` — suggested next steps; **do not** imply an action was
-  executed.
+- `steps` — execution timeline. Every step carries an explicit `status`. The
+  `analyze_evidence` step is `skipped` when `LLM_ENABLED` is not `true`.
+- `result.facts` — original dataset records. `result.evidence` — `source_id` +
+  `dataset`, de-duplicated. Both are **always derived from the data adapter**; the
+  LLM cannot add or invent them.
+- `result.analysis` — validated LLM output (`summary`, `findings`,
+  `recommendations`, `uncertainty`, `model`, `usage`), or `null` when the LLM step
+  is disabled.
+- `result.interpretation` / `uncertainty` / `recommendations` — user-facing arrays;
+  deterministic baseline plus LLM additions when enabled.
 - `result.data_label` — always `SYNTHETIC`.
 - `error` — populated (`{code, message}`) only for failed tasks.
+
+## LLM analysis (optional)
+
+When `LLM_ENABLED=true`, the workflow runs `inspect_report → analyze_evidence →
+prepare_result`. The model:
+
+- receives only a bounded digest of already-retrieved records (max 6 per dataset,
+  allow-listed fields, truncated), never the whole dataset;
+- is not asked for, and cannot produce, source IDs;
+- returns Structured Output validated with Pydantic.
+
+If the provider fails, times out, or returns invalid output, the API responds:
+
+- HTTP `500`, and
+- the task is persisted with `status: "failed"`, `error.code: "LLM_ANALYSIS_FAILED"`,
+  and an `analyze_evidence` step marked `failed`.
+
+A failed LLM step is **never** reported as `completed`.
+
+Token usage from the provider is stored in `result.analysis.usage` when available;
+otherwise it is `{"status": "unavailable"}`. No prompt content or credentials are
+logged.
 
 ## Status values
 
@@ -168,4 +207,4 @@ Reserved for future work: `waiting_for_approval`, `cancelled`
 | `POST /api/tasks` | yes | yes | auth + validation + persistence |
 | `GET /api/tasks/{id}` | yes | yes | reads from PostgreSQL |
 | `GET /api/history` | yes | yes | reads from PostgreSQL |
-| LLM-backed analysis | no | no | planned (`analyze_evidence`) |
+| LLM-backed analysis | yes | yes (mock) + live 1x | optional via `LLM_ENABLED=true` (`analyze_evidence`) |
