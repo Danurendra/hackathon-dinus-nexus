@@ -99,6 +99,41 @@ List persisted tasks, newest first.
 { "items": [ { /* task object */ } ] }
 ```
 
+### `GET /api/metrics/tokens`
+
+Aggregate LLM token usage across persisted tasks (official token-efficiency
+metric). Tasks without LLM usage are reported as `unavailable`.
+
+**Headers:** `X-API-Key` (required)
+
+**200**
+```json
+{
+  "totals": {
+    "tasks": 5,
+    "tasks_with_usage": 2,
+    "input_tokens": 1224,
+    "output_tokens": 362,
+    "unavailable": 3
+  },
+  "by_model": [
+    { "model": "gpt-4o-mini", "tasks": 2, "input_tokens": 1224, "output_tokens": 362 }
+  ],
+  "items": [
+    { "task_id": "…", "model": "gpt-4o-mini", "input_tokens": 612, "output_tokens": 181, "created_at": "…" }
+  ]
+}
+```
+
+**503** — database unavailable.
+
+## CORS
+
+The API allows browser calls from origins configured in `CORS_ORIGINS`
+(comma-separated; default `http://localhost:3000,http://127.0.0.1:3000`).
+Preflight (`OPTIONS`) requests return `Access-Control-Allow-Origin` for allowed
+origins. Add your frontend origin to `CORS_ORIGINS` in `.env` before deploying.
+
 ## Task object
 
 ```json
@@ -152,7 +187,10 @@ List persisted tasks, newest first.
     "recommendations": ["Verify the relevant device and incident details before taking action."],
     "data_label": "SYNTHETIC"
   },
-  "error": null
+  "error": null,
+  "llm_model": "gpt-4o-mini",
+  "input_tokens": 612,
+  "output_tokens": 181
 }
 ```
 
@@ -160,6 +198,8 @@ List persisted tasks, newest first.
 
 - `steps` — execution timeline. Every step carries an explicit `status`. The
   `analyze_evidence` step is `skipped` when `LLM_ENABLED` is not `true`.
+- `llm_model` / `input_tokens` / `output_tokens` — per-task LLM usage; `null`
+  when the LLM step did not run or usage was unavailable.
 - `result.facts` — original dataset records. `result.evidence` — `source_id` +
   `dataset`, de-duplicated. Both are **always derived from the data adapter**; the
   LLM cannot add or invent them.
@@ -220,4 +260,5 @@ Reserved for future work: `waiting_for_approval`, `cancelled`
 | `POST /api/tasks` | yes | yes | auth + validation + persistence |
 | `GET /api/tasks/{id}` | yes | yes | reads from PostgreSQL |
 | `GET /api/history` | yes | yes | reads from PostgreSQL |
+| `GET /api/metrics/tokens` | yes | yes | aggregates persisted LLM usage |
 | LLM-backed analysis | yes | yes (mock) + live 1x | optional via `LLM_ENABLED=true` (`analyze_evidence`) |

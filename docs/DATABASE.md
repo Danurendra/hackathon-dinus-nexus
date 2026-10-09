@@ -49,10 +49,15 @@ documentation, logs, or issues.
 | `steps` | json | no | execution timeline (JSON array) |
 | `result` | json | yes | facts / evidence / interpretation / … |
 | `error` | json | yes | `{code, message}` on failure |
+| `llm_model` | varchar(100) | yes | model id when the LLM step ran |
+| `input_tokens` | integer | yes | provider input tokens |
+| `output_tokens` | integer | yes | provider output tokens |
 
 `steps`, `result`, and `error` are stored as JSON because their shape is
-workflow-owned and still evolving. A dedicated `task_runs` / `execution_steps`
-table is a planned normalization step, not yet required for the vertical slice.
+workflow-owned and still evolving. The `llm_model`/token columns are extracted
+from `result.analysis.usage` at task completion so the token metrics endpoint can
+aggregate with SQL. A dedicated `task_runs` / `execution_steps` table is a planned
+normalization step, not yet required for the vertical slice.
 
 ## Migrations
 
@@ -89,6 +94,11 @@ alembic stamp head
 `stamp` records the revision without altering data. Do **not** drop the volume
 or reset the database to work around migration issues. For a brand-new database
 (including the test database), run `alembic upgrade head`.
+
+Migration `0002_add_token_usage` adds the nullable LLM usage columns
+(`llm_model`, `input_tokens`, `output_tokens`) used by
+`GET /api/metrics/tokens`. Because the columns are nullable, the deterministic
+(no-LLM) path is unaffected.
 
 ## Transactions and persistence policy
 

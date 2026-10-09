@@ -1,6 +1,6 @@
 # Testing — DinusNexus Backend
 
-> Status: **implemented and passing**. Last run: 2026-10-09, **45 passed, 1 skipped**.
+> Status: **implemented and passing**. Last run: 2026-10-09, **49 passed, 1 skipped**.
 
 ## Prerequisites
 
@@ -74,9 +74,10 @@ Environment setup in `conftest.py` runs before importing `src.*`, pointing
 - Graph without location context still completes.
 - Empty result is **not** treated as a diagnosis (empty facts/evidence).
 
-### `tests/test_api.py` (11)
+### `tests/test_api.py` (14)
 - `/health` is public.
-- Protected endpoints require a key (`401`) and reject a wrong key (`401`).
+- Protected endpoints require a key (`401`) and reject a wrong key (`401`),
+  including `/api/metrics/tokens`.
 - Create task success returns grounded `SYNTHETIC` result with evidence.
 - Create without zone context still completes.
 - Deterministic no-match request.
@@ -85,8 +86,10 @@ Environment setup in `conftest.py` runs before importing `src.*`, pointing
 - Missing task → `404`.
 - History lists tasks newest-first.
 - `CreateTaskInput` defaults.
+- CORS: preflight and response header for configured origins.
+- Token metrics with no usage (all `unavailable`).
 
-### `tests/test_persistence.py` (5)
+### `tests/test_persistence.py` (6)
 - Result survives a new DB session (engine disposed to simulate restart).
 - History survives a new DB session.
 - Workflow failure is persisted as `failed` (never `completed`) and returns
@@ -94,6 +97,7 @@ Environment setup in `conftest.py` runs before importing `src.*`, pointing
 - Database outage on save returns `503`.
 - LLM failure is persisted as `failed` with `LLM_ANALYSIS_FAILED` and a failed
   `analyze_evidence` step.
+- Token usage is persisted to columns and aggregated by `/api/metrics/tokens`.
 
 ### `tests/test_llm_analysis.py` (14 + 1 live)
 - Evidence digest is bounded (max records per dataset) and field-filtered
@@ -112,8 +116,21 @@ Environment setup in `conftest.py` runs before importing `src.*`, pointing
 
 ```
 $ pytest
-45 passed, 1 skipped in 3.51s
+49 passed, 1 skipped in 3.96s
 ```
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push/PR with a PostgreSQL 16 service:
+
+1. install dependencies,
+2. create the `dinusnexus_test` database,
+3. `python -m compileall -q src`,
+4. `python check_data.py`,
+5. `alembic upgrade head`,
+6. `pytest`.
+
+`LLM_ENABLED` is forced to `false`, so CI never calls the paid API.
 
 ## Smoke test (manual)
 

@@ -11,6 +11,8 @@
 | IT Helpdesk deterministic flow (input → retrieval → evidence → persist → history) | implemented, tested |
 | PostgreSQL persistence + Alembic migration | implemented, tested |
 | API key authentication (`X-API-Key`) | implemented, tested |
+| CORS untuk frontend + token metrics | implemented, tested |
+| CI (GitHub Actions: compile, data check, migrasi, pytest) | implemented (workflow) |
 | Input validation & error handling | implemented, tested |
 | LLM `analyze_evidence` (opsional, `LLM_ENABLED=true`) | implemented, tested (mock) + diverifikasi live 1x |
 | Campus Twin 2D, upload dokumen, 7 role lain | planned |
@@ -97,6 +99,7 @@ uvicorn src.main:app --reload
 |---|---|---|
 | `DATABASE_URL` | ya | koneksi `postgresql+psycopg://…` |
 | `DINUSNEXUS_API_KEY` | ya | API key backend (header `X-API-Key`) |
+| `CORS_ORIGINS` | tidak | origin frontend yang diizinkan (default `http://localhost:3000,http://127.0.0.1:3000`) |
 | `TEST_DATABASE_URL` | tidak | database terpisah untuk test |
 | `LLM_ENABLED` | tidak | `true` untuk mengaktifkan langkah LLM (default `false`) |
 | `OPENAI_API_KEY` | tidak | wajib bila `LLM_ENABLED=true` |
@@ -115,6 +118,7 @@ Nilai asli tidak boleh masuk source code, dokumentasi, log, atau Git.
 | POST | `/api/tasks` | `X-API-Key` | buat task + jalankan workflow |
 | GET | `/api/tasks/{task_id}` | `X-API-Key` | baca task |
 | GET | `/api/history` | `X-API-Key` | daftar task (terbaru dulu) |
+| GET | `/api/metrics/tokens` | `X-API-Key` | agregat penggunaan token LLM |
 
 Kontrak lengkap: [`docs/API.md`](docs/API.md). Langkah LLM bersifat opsional
 (`LLM_ENABLED=true`); ketika aktif, node `analyze_evidence` menganalisis bukti

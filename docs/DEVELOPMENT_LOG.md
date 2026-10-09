@@ -6,6 +6,57 @@ recorded run.
 
 ---
 
+## 2026-10-09 — Frontend integration (CORS), token metrics, and CI
+
+**Goal.** Remove the biggest remaining blockers to a demo-ready backend: allow
+browser calls from the frontend, expose the official token-usage metric, and
+verify every change automatically.
+
+### Changes
+
+| Area | Files | Notes |
+|---|---|---|
+| CORS | `src/main.py`, `.env.example` | `CORSMiddleware` from `CORS_ORIGINS` |
+| Token metrics | `src/main.py` | `GET /api/metrics/tokens` (SQL aggregation) |
+| Schema | `src/db/models.py`, `alembic/versions/0002_add_token_usage.py` | nullable `llm_model`, `input_tokens`, `output_tokens` |
+| Persistence | `src/main.py` | `extract_usage()` populates token columns on completion |
+| CI | `.github/workflows/ci.yml` | Postgres service, compile, data check, migrate, pytest |
+| Tests | `tests/test_api.py`, `tests/test_persistence.py`, `tests/conftest.py` | CORS, metrics, token persistence |
+| Docs | `README.md`, `docs/API.md`, `docs/DATABASE.md`, `docs/TESTING.md` | endpoints, CORS, columns, CI |
+
+### Notes
+
+- Migration `0002` is additive/nullable; the deterministic path is unaffected.
+  Applied to the dev and test databases with `alembic upgrade head` (no data loss,
+  no volume reset).
+- The test fixture no longer drops tables at teardown so the test database stays
+  consistent with the Alembic revision state.
+- Token columns are extracted from `result.analysis.usage`; when usage is
+  unavailable the columns stay `NULL` and the metric counts them as `unavailable`.
+
+### Commands and actual results
+
+```text
+python -m compileall -q src alembic   -> exit 0
+alembic upgrade head                  -> 0001 -> 0002 (dev + test)
+alembic check                         -> No new upgrade operations detected.
+pytest                                -> 49 passed, 1 skipped in 3.96s
+```
+
+### Open issues
+
+- No approval gate (`waiting_for_approval`) or background execution yet.
+- CI workflow validated locally (YAML parsed, same commands run); GitHub run not
+  yet observed.
+
+### Next steps
+
+1. Watch the first CI run and fix any runner-specific issues.
+2. Implement the approval gate and normalized `task_runs`/`execution_steps`.
+3. Wire the frontend to `/api/tasks`, `/api/history`, `/api/metrics/tokens`.
+
+---
+
 ## 2026-10-09 — Bounded LLM retry, timeout, and backoff
 
 **Goal.** Harden the optional LLM step so transient provider failures are
