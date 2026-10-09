@@ -15,7 +15,9 @@ def get_client() -> OpenAI:
             "OPENAI_API_KEY belum diatur di file .env"
         )
 
-    return OpenAI(api_key=api_key)
+    # Retries are handled explicitly (and bounded) by the caller layers,
+    # so disable the SDK's own retry loop to keep a single, testable policy.
+    return OpenAI(api_key=api_key, max_retries=0)
 
 
 def generate_text(prompt: str) -> str:

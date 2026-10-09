@@ -14,8 +14,12 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import random
+import time
 from typing import Any
 
+from openai import APIConnectionError
 from pydantic import BaseModel
 
 from src.llm.client import MODEL_NAME, get_client
@@ -25,6 +29,10 @@ logger = logging.getLogger(__name__)
 # Bound how much evidence reaches the provider (token efficiency).
 MAX_RECORDS_PER_DATASET = 6
 MAX_FIELD_CHARS = 200
+
+# Bounded retry policy for transient provider errors.
+MAX_ATTEMPTS_LIMIT = 5
+RETRYABLE_STATUS_CODES = {408, 409, 429}
 
 # Only these fields are ever sent to the provider, per dataset.
 _ALLOWED_FIELDS: dict[str, tuple[str, ...]] = {
@@ -121,6 +129,83 @@ def _extract_usage(response: Any) -> dict[str, Any]:
     }
 
 
+def max_attempts() -> int:
+    """Bounded number of provider attempts (1..MAX_ATTEMPTS_LIMIT)."""
+    try:
+        value = int(os.getenv("LLM_MAX_ATTEMPTS", "3"))
+    except ValueError:
+        value = 3
+    return max(1, min(value, MAX_ATTEMPTS_LIMIT))
+
+
+def _timeout_seconds() -> float:
+    try:
+        value = float(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
+    except ValueError:
+        value = 30.0
+    return value if value > 0 else 30.0
+
+
+def _retry_base_delay() -> float:
+    try:
+        value = float(os.getenv("LLM_RETRY_BASE_DELAY", "0.5"))
+    except ValueError:
+        value = 0.5
+    return value if value >= 0 else 0.5
+
+
+def _is_transient(exc: Exception) -> bool:
+    """Only retry errors that can plausibly succeed on a later attempt."""
+    if isinstance(exc, APIConnectionError):
+        return True
+    status = getattr(exc, "status_code", None)
+    if isinstance(status, int):
+        return status in RETRYABLE_STATUS_CODES or 500 <= status < 600
+    return False
+
+
+def _backoff_delay(attempt: int) -> float:
+    delay = _retry_base_delay() * (2 ** (attempt - 1))
+    return delay + random.uniform(0, delay * 0.25)
+
+
+def _request_with_retry(prompt: str) -> Any:
+    """Call the provider with bounded exponential backoff + jitter."""
+    attempts = max_attempts()
+    for attempt in range(1, attempts + 1):
+        try:
+            return get_client().responses.parse(
+                model=MODEL_NAME,
+                instructions=INSTRUCTIONS,
+                input=prompt,
+                text_format=AnalysisOutput,
+                max_output_tokens=700,
+                timeout=_timeout_seconds(),
+            )
+        except Exception as exc:
+            if not _is_transient(exc) or attempt == attempts:
+                logger.warning(
+                    "LLM request failed after %d attempt(s): %s",
+                    attempt,
+                    type(exc).__name__,
+                )
+                raise LLMAnalysisError(
+                    "The language model request failed."
+                ) from exc
+            delay = _backoff_delay(attempt)
+            logger.warning(
+                "Transient LLM error %s; retrying %d/%d in %.2fs",
+                type(exc).__name__,
+                attempt + 1,
+                attempts,
+                delay,
+            )
+            time.sleep(delay)
+
+    # Unreachable: the loop always returns or raises.
+    raise LLMAnalysisError("The language model request failed.")
+
+
 def analyze_findings(
     description: str,
     findings: dict,
@@ -129,22 +214,11 @@ def analyze_findings(
 ) -> dict[str, Any]:
     """Analyze retrieved records with the LLM and return a validated result."""
     prompt = build_prompt(description, findings, location, device_type)
-
-    try:
-        response = get_client().responses.parse(
-            model=MODEL_NAME,
-            instructions=INSTRUCTIONS,
-            input=prompt,
-            text_format=AnalysisOutput,
-            max_output_tokens=700,
-        )
-    except Exception as exc:  # auth, quota, rate limit, network, schema errors
-        # Log the error type only; never the prompt or credentials.
-        logger.warning("LLM request failed: %s", type(exc).__name__)
-        raise LLMAnalysisError("The language model request failed.") from exc
+    response = _request_with_retry(prompt)
 
     parsed = getattr(response, "output_parsed", None)
     if parsed is None:
+        # Structural failure: retrying the same prompt would not help.
         raise LLMAnalysisError(
             "The language model returned no parsable analysis."
         )

@@ -10,6 +10,7 @@ from src.llm.analysis import (
     analyze_findings,
     build_evidence_digest,
     build_prompt,
+    max_attempts,
 )
 from src.main import StepFailedError, analyze_evidence
 
@@ -33,15 +34,28 @@ class _FakeResponse:
         self.usage = usage
 
 
-class _FakeResponses:
-    def __init__(self, response=None, error=None):
-        self._response = response
-        self._error = error
+class _TransientError(Exception):
+    """Mimics a provider error carrying a retryable HTTP status."""
+
+    def __init__(self, status_code=429):
+        super().__init__(f"provider error {status_code}")
+        self.status_code = status_code
+
+
+class _SequenceResponses:
+    """Returns/raises each item once; the last item repeats."""
+
+    def __init__(self, items):
+        self._items = list(items)
+        self.calls = 0
 
     def parse(self, **kwargs):
-        if self._error is not None:
-            raise self._error
-        return self._response
+        self.calls += 1
+        index = min(self.calls - 1, len(self._items) - 1)
+        item = self._items[index]
+        if isinstance(item, Exception):
+            raise item
+        return item
 
 
 class _FakeClient:
@@ -49,9 +63,27 @@ class _FakeClient:
         self.responses = responses
 
 
-def _patch_client(monkeypatch, response=None, error=None):
-    client = _FakeClient(_FakeResponses(response=response, error=error))
-    monkeypatch.setattr("src.llm.analysis.get_client", lambda: client)
+def _install(monkeypatch, items):
+    responses = _SequenceResponses(items)
+    monkeypatch.setattr(
+        "src.llm.analysis.get_client", lambda: _FakeClient(responses)
+    )
+    return responses
+
+
+def _parsed(summary="ok"):
+    return AnalysisOutput(
+        summary=summary,
+        findings=["f"],
+        recommendations=["r"],
+        uncertainty=["u"],
+    )
+
+
+def _fast_retries(monkeypatch, attempts=3):
+    monkeypatch.setenv("LLM_MAX_ATTEMPTS", str(attempts))
+    monkeypatch.setenv("LLM_RETRY_BASE_DELAY", "0")
+    monkeypatch.setattr("src.llm.analysis.time.sleep", lambda *a, **k: None)
 
 
 # --- Digest / prompt (bounded evidence) ---------------------------------
@@ -68,7 +100,6 @@ def test_evidence_digest_is_bounded_and_field_filtered():
     digest = build_evidence_digest(many)
 
     assert len(digest) == MAX_RECORDS_PER_DATASET
-    # The allowlist must exclude fields not needed by the model.
     assert "SECRET" not in "\n".join(digest)
     assert "macAddress" not in "\n".join(digest)
 
@@ -87,16 +118,10 @@ def test_prompt_includes_hits_for_real_findings():
     assert "incident-001" in prompt
 
 
-# --- analyze_findings ----------------------------------------------------
+# --- analyze_findings: success / validation -----------------------------
 
 def test_analyze_findings_returns_validated_result(monkeypatch):
-    parsed = AnalysisOutput(
-        summary="Dua access point dan dua insiden relevan ditemukan.",
-        findings=["Access point A1-01 dan A1-02 berada di zona terdampak."],
-        recommendations=["Periksa riwayat insiden sebelum tindakan."],
-        uncertainty=["Data bersifat sintetis."],
-    )
-    _patch_client(monkeypatch, response=_FakeResponse(parsed))
+    responses = _install(monkeypatch, [_FakeResponse(_parsed("Dua access point"))])
 
     result = analyze_findings("gangguan koneksi", FINDINGS, "zone-A1", "access_point")
 
@@ -106,50 +131,95 @@ def test_analyze_findings_returns_validated_result(monkeypatch):
     assert result["uncertainty"]
     assert result["model"]
     assert result["usage"] == {"input_tokens": 12, "output_tokens": 34}
-
-
-def test_analyze_findings_provider_error_raises(monkeypatch):
-    _patch_client(monkeypatch, error=RuntimeError("provider down"))
-
-    with pytest.raises(LLMAnalysisError):
-        analyze_findings("gangguan koneksi", FINDINGS)
-
-
-def test_analyze_findings_missing_output_raises(monkeypatch):
-    _patch_client(monkeypatch, response=_FakeResponse(None))
-
-    with pytest.raises(LLMAnalysisError):
-        analyze_findings("gangguan koneksi", FINDINGS)
+    assert responses.calls == 1
 
 
 def test_analyze_findings_usage_unavailable(monkeypatch):
-    parsed = AnalysisOutput(
-        summary="ok", findings=[], recommendations=[], uncertainty=[]
-    )
-    _patch_client(monkeypatch, response=_FakeResponse(parsed, usage=None))
+    _install(monkeypatch, [_FakeResponse(_parsed(), usage=None)])
 
     result = analyze_findings("gangguan koneksi", FINDINGS)
 
     assert result["usage"] == {"status": "unavailable"}
 
 
+def test_missing_output_raises_without_retry(monkeypatch):
+    _fast_retries(monkeypatch, attempts=3)
+    responses = _install(monkeypatch, [_FakeResponse(None)])
+
+    with pytest.raises(LLMAnalysisError):
+        analyze_findings("gangguan koneksi", FINDINGS)
+
+    assert responses.calls == 1
+
+
+# --- analyze_findings: retry policy -------------------------------------
+
+def test_transient_error_is_retried_then_succeeds(monkeypatch):
+    _fast_retries(monkeypatch, attempts=3)
+    responses = _install(
+        monkeypatch,
+        [_TransientError(429), _FakeResponse(_parsed("recovered"))],
+    )
+
+    result = analyze_findings("gangguan koneksi", FINDINGS)
+
+    assert result["summary"] == "recovered"
+    assert responses.calls == 2
+
+
+def test_server_error_503_is_retried(monkeypatch):
+    _fast_retries(monkeypatch, attempts=2)
+    responses = _install(
+        monkeypatch,
+        [_TransientError(503), _FakeResponse(_parsed())],
+    )
+
+    analyze_findings("gangguan koneksi", FINDINGS)
+
+    assert responses.calls == 2
+
+
+def test_gives_up_after_max_attempts(monkeypatch):
+    _fast_retries(monkeypatch, attempts=2)
+    responses = _install(monkeypatch, [_TransientError(429)])
+
+    with pytest.raises(LLMAnalysisError):
+        analyze_findings("gangguan koneksi", FINDINGS)
+
+    assert responses.calls == 2
+
+
+def test_non_transient_error_is_not_retried(monkeypatch):
+    _fast_retries(monkeypatch, attempts=3)
+    responses = _install(monkeypatch, [_TransientError(400)])
+
+    with pytest.raises(LLMAnalysisError):
+        analyze_findings("gangguan koneksi", FINDINGS)
+
+    assert responses.calls == 1
+
+
+def test_max_attempts_is_clamped(monkeypatch):
+    monkeypatch.setenv("LLM_MAX_ATTEMPTS", "0")
+    assert max_attempts() == 1
+    monkeypatch.setenv("LLM_MAX_ATTEMPTS", "99")
+    assert max_attempts() == 5
+    monkeypatch.setenv("LLM_MAX_ATTEMPTS", "not-a-number")
+    assert max_attempts() == 3
+
+
 # --- analyze_evidence node ----------------------------------------------
 
 def _state():
-    inspected = {
-        "status": "running",
-        "findings": FINDINGS,
-        "steps": [
-            {"step_id": "inspect_report", "name": "x", "status": "completed"}
-        ],
-    }
     return {
         "task_id": "t",
         "description": "gangguan koneksi",
         "location": "zone-A1",
         "device_type": "access_point",
         "status": "running",
-        "steps": inspected["steps"],
+        "steps": [
+            {"step_id": "inspect_report", "name": "x", "status": "completed"}
+        ],
         "findings": FINDINGS,
         "analysis": {},
         "result": {},
