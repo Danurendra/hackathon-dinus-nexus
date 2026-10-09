@@ -92,9 +92,18 @@ def search_helpdesk(
     # Resolve the selected zone and its building.
     zones = datasets["zones"]
     selected_zone = next(
-        (z for z in zones if z["id"].lower() == zone_id.lower()),
+        (
+            z
+            for z in zones
+            if zone_id
+            and (
+                z["id"].lower() == zone_id.lower()
+                or z["name"].lower() == zone_id.lower()
+            )
+        ),
         None,
     ) if zone_id else None
+    resolved_zone_id = selected_zone["id"] if selected_zone else zone_id
 
     building_id = (
         selected_zone["buildingId"] if selected_zone else None
@@ -103,7 +112,7 @@ def search_helpdesk(
     # Select devices matching the requested context.
     matching_devices = []
     for device in datasets["devices"]:
-        if zone_id and device.get("zoneId") != zone_id:
+        if resolved_zone_id and device.get("zoneId") != resolved_zone_id:
             continue
 
         actual_type = device.get("type", "").lower()
@@ -125,10 +134,10 @@ def search_helpdesk(
             # Apply location context.
             if zone_id:
                 if dataset_name in ("devices", "incidents"):
-                    if record.get("zoneId") != zone_id:
+                    if record.get("zoneId") != resolved_zone_id:
                         continue
                 elif dataset_name == "zones":
-                    if record.get("id") != zone_id:
+                    if record.get("id") != resolved_zone_id:
                         continue
                 elif dataset_name == "buildings":
                     if record.get("id") != building_id:
@@ -178,9 +187,8 @@ def search_helpdesk(
         "data_label": "SYNTHETIC",
         "query": query,
         "filters": {
-            "zone_id": zone_id,
+            "zone_id": resolved_zone_id,
             "device_type": device_type,
         },
         "matches": matches,
     }
-

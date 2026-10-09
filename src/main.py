@@ -10,6 +10,18 @@ from pydantic import BaseModel, Field
 
 
 app = FastAPI(title="DinusNexus API", version="0.1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+    ],
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
+)
 
 # Local frontend development only. Production origins must be configured explicitly.
 app.add_middleware(
@@ -40,6 +52,8 @@ class CreateTaskInput(BaseModel):
 class WorkflowState(TypedDict):
     task_id: str
     description: str
+    zone_id: str | None
+    device_type: str | None
     status: str
     steps: list[dict]
     findings: dict
@@ -47,7 +61,11 @@ class WorkflowState(TypedDict):
 
 
 def inspect_report(state: WorkflowState) -> dict:
-    findings = search_helpdesk(state["description"])
+    findings = search_helpdesk(
+        state["description"],
+        zone_id=state["zone_id"],
+        device_type=state["device_type"],
+    )
 
     source_ids = [
         item["id"]
@@ -161,6 +179,8 @@ def create_task(payload: CreateTaskInput):
         output = helpdesk_graph.invoke({
             "task_id": task_id,
             "description": payload.description,
+            "zone_id": payload.location,
+            "device_type": payload.device_type,
             "status": "queued",
             "steps": [],
             "result": {},

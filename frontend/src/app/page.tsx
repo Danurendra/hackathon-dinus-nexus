@@ -1,277 +1,280 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Card } from '@/components/ui/Card';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Activity,
+  AlertTriangle,
+  CheckCircle,
+  Clock3,
+  ExternalLink,
+  FileSearch,
+  RefreshCw,
+  Wifi,
+} from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { TaskCard } from '@/components/workflow/TaskCard';
-import { CampusMap } from '@/components/campus-twin/CampusMap';
+import { Card } from '@/components/ui/Card';
 import { ChatInput } from '@/components/chat/ChatInput';
-import { 
-  Activity, 
-  Clock, 
-  Users, 
-  AlertTriangle, 
-  CheckCircle,
-  Wifi,
-  Zap,
-  Building
-} from 'lucide-react';
+import { ExecutionTimeline } from '@/components/workflow/ExecutionTimeline';
 
-type TaskStatus = 'queued' | 'running' | 'completed' | 'failed' | 'waiting_for_approval' | 'cancelled';
+type TaskStatus = 'queued' | 'running' | 'completed' | 'failed';
 
-interface DashboardTask {
-  taskId: string;
-  title: string;
-  description: string;
-  status: TaskStatus;
+interface Task {
+  task_id: string;
+  run_id: string;
   worker: string;
-  createdAt: string;
-  location: string;
-  deviceType: string;
+  description: string;
+  location?: string;
+  device_type?: string;
+  status: TaskStatus;
+  created_at: string;
+  steps: Array<{
+    step_id: string;
+    name: string;
+    status: 'queued' | 'running' | 'completed' | 'failed' | 'skipped' | 'retrying';
+    source_ids?: string[];
+  }>;
   result?: {
-    facts?: Array<{ dataset: string; record: Record<string, unknown> }>;
-    interpretation?: string[];
-    uncertainty?: string[];
-    recommendations?: string[];
-    evidence?: Array<{ source_id: string; dataset: string }>;
-    data_label?: string;
-  } | null;
+    facts: Array<{ dataset: string; record: Record<string, unknown> }>;
+    interpretation: string[];
+    uncertainty: string[];
+    recommendations: string[];
+    evidence: Array<{ source_id: string; dataset: string }>;
+    data_label: string;
+  };
+  error?: { code: string; message: string };
 }
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '');
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8000';
 
-const sampleBuildings = [
-  { id: 'bldg-a', name: 'Gedung A', x: 25, y: 30, status: 'operational', devices: 45, incidents: 2 },
-  { id: 'bldg-b', name: 'Gedung B', x: 75, y: 40, status: 'warning', devices: 32, incidents: 5 },
-  { id: 'bldg-c', name: 'Gedung C', x: 50, y: 70, status: 'critical', devices: 28, incidents: 8 },
-  { id: 'bldg-d', name: 'Gedung D', x: 20, y: 75, status: 'maintenance', devices: 15, incidents: 0 },
-];
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat('id-ID', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(value));
+}
 
-function mapApiTask(raw: any): DashboardTask {
-  return {
-    taskId: raw.task_id,
-    title: raw.description?.length > 30 ? raw.description.slice(0, 30) + '...' : raw.description,
-    description: raw.description,
-    status: raw.status,
-    worker: raw.worker === 'it_helpdesk' ? 'IT Helpdesk' : raw.worker,
-    createdAt: raw.created_at ? new Date(raw.created_at).toLocaleString() : 'Waktu tidak tersedia',
-    location: raw.location || 'Tidak ditentukan',
-    deviceType: raw.device_type || 'Tidak ditentukan',
-    result: raw.result || null,
-  };
+function statusVariant(status: TaskStatus) {
+  if (status === 'completed') return 'success';
+  if (status === 'failed') return 'error';
+  if (status === 'running') return 'info';
+  return 'warning';
 }
 
 export default function HomePage() {
-  const [tasks, setTasks] = useState<DashboardTask[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [selectedTaskId, setSelectedTaskId] = useState<string>();
   const [isLoading, setIsLoading] = useState(true);
-  const [isCreating, setIsCreating] = useState(false);
-  const [apiError, setApiError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string>();
 
-  const loadHistory = async () => {
+  const selectedTask = useMemo(
+    () => tasks.find((task) => task.task_id === selectedTaskId) ?? tasks[0],
+    [selectedTaskId, tasks],
+  );
+
+  const loadHistory = useCallback(async () => {
+    setIsLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/api/history`, { cache: 'no-store' });
-      if (!response.ok) throw new Error(`Backend merespons HTTP ${response.status}`);
-      const data = await response.json();
-      setTasks((data.items || []).map(mapApiTask));
-      setApiError('');
-    } catch (error) {
-      setApiError(error instanceof Error ? error.message : 'Backend tidak dapat dihubungi');
+      const response = await fetch(`${API_BASE_URL}/api/history`);
+      if (!response.ok) throw new Error('History task tidak dapat dimuat.');
+      const data = (await response.json()) as { items: Task[] };
+      setTasks(data.items);
+      setSelectedTaskId((current) => current ?? data.items[0]?.task_id);
+      setError(undefined);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Gagal memuat history.');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     void loadHistory();
-  }, []);
+  }, [loadHistory]);
 
-  const handleCreateTask = async (message: string, _attachments?: File[], metadata?: { location?: string; deviceType?: string }) => {
-    if (!message.trim() || isCreating) return;
-    setIsCreating(true);
-    setApiError('');
+  const handleCreateTask = async (
+    message: string,
+    attachments: File[] = [],
+    context?: { worker: 'it_helpdesk'; location?: string; deviceType?: string },
+  ) => {
+    if (attachments.length > 0) {
+      setError('Lampiran belum terhubung ke parser backend pada prototipe ini. Kirim deskripsi teks tanpa lampiran.');
+      return;
+    }
+    setIsSubmitting(true);
+    setError(undefined);
     try {
-      const response = await fetch(`${API_BASE}/api/tasks`, {
+      const response = await fetch(`${API_BASE_URL}/api/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ worker: 'it_helpdesk', description: message.trim(), location: metadata?.location || null, device_type: metadata?.deviceType || null }),
+        body: JSON.stringify({
+          worker: context?.worker ?? 'it_helpdesk',
+          description: message,
+          location: context?.location,
+          device_type: context?.deviceType,
+        }),
       });
-      if (!response.ok) {
-        const detail = await response.json().catch(() => null);
-        const messageFromApi = detail?.detail?.error?.message || detail?.detail || `Gagal membuat task (HTTP ${response.status})`;
-        throw new Error(typeof messageFromApi === 'string' ? messageFromApi : JSON.stringify(messageFromApi));
-      }
-      const created = mapApiTask(await response.json());
-      setTasks((current) => [created, ...current.filter((task) => task.taskId !== created.taskId)]);
-    } catch (error) {
-      setApiError(error instanceof Error ? error.message : 'Task gagal dibuat');
+      if (!response.ok) throw new Error('Task gagal diproses oleh workflow.');
+      const task = (await response.json()) as Task;
+      setTasks((current) => [task, ...current.filter((item) => item.task_id !== task.task_id)]);
+      setSelectedTaskId(task.task_id);
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : 'Task gagal dibuat.');
     } finally {
-      setIsCreating(false);
+      setIsSubmitting(false);
     }
   };
 
+  const completedCount = tasks.filter((task) => task.status === 'completed').length;
+  const activeCount = tasks.filter((task) => task.status === 'running' || task.status === 'queued').length;
+  const failedCount = tasks.filter((task) => task.status === 'failed').length;
+
   return (
     <div className="space-y-6">
-      {/* Dashboard Header */}
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-          <p className="text-gray-600">Selamat datang di DinusNexus</p>
+          <div className="mb-2 flex items-center gap-2">
+            <Badge variant="primary">PROTOTYPE</Badge>
+            <Badge variant="info">IT Helpdesk Worker</Badge>
+          </div>
+          <h1 className="text-2xl font-bold text-gray-900">Helpdesk operations workspace</h1>
+          <p className="text-gray-600">Buat laporan, telusuri evidence sintetis, dan pantau hasil workflow.</p>
         </div>
-        <div className="flex space-x-2">
-          <Badge variant={apiError ? "warning" : "success"}>{apiError ? "Backend offline" : "API connected"}</Badge>
-          <Badge variant="info">IT Helpdesk</Badge>
-        </div>
+        <Button variant="outline" size="sm" onClick={() => void loadHistory()} disabled={isLoading}>
+          <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+          Refresh history
+        </Button>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="p-4">
-          <div className="flex items-center">
-            <div className="p-2 bg-blue-100 rounded-lg">
-              <Activity className="w-6 h-6 text-blue-600" />
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Task</p>
-              <p className="text-2xl font-semibold text-gray-900">{tasks.length}</p>
-            </div>
-          </div>
-        </Card>
-        
-        <Card className="p-4">
-          <div className="flex items-center">
-            <div className="p-2 bg-green-100 rounded-lg">
-              <CheckCircle className="w-6 h-6 text-green-600" />
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Selesai</p>
-              <p className="text-2xl font-semibold text-gray-900">
-                {tasks.filter(t => t.status === 'completed').length}
-              </p>
-            </div>
-          </div>
-        </Card>
-        
-        <Card className="p-4">
-          <div className="flex items-center">
-            <div className="p-2 bg-yellow-100 rounded-lg">
-              <Clock className="w-6 h-6 text-yellow-600" />
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Dalam Proses</p>
-              <p className="text-2xl font-semibold text-gray-900">
-                {tasks.filter(t => t.status === 'running').length}
-              </p>
-            </div>
-          </div>
-        </Card>
-        
-        <Card className="p-4">
-          <div className="flex items-center">
-            <div className="p-2 bg-red-100 rounded-lg">
-              <AlertTriangle className="w-6 h-6 text-red-600" />
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Kesalahan</p>
-              <p className="text-2xl font-semibold text-gray-900">
-                {tasks.filter(t => t.status === 'failed').length}
-              </p>
-            </div>
-          </div>
-        </Card>
+      {error && (
+        <div className="flex items-center justify-between rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+          <span>{error}</span>
+          <Button variant="outline" size="sm" onClick={() => void loadHistory()}>Coba lagi</Button>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+        <Metric icon={<Activity className="h-5 w-5 text-blue-600" />} label="Total task" value={tasks.length} />
+        <Metric icon={<CheckCircle className="h-5 w-5 text-green-600" />} label="Selesai" value={completedCount} />
+        <Metric icon={<Clock3 className="h-5 w-5 text-yellow-600" />} label="Aktif" value={activeCount} />
+        <Metric icon={<AlertTriangle className="h-5 w-5 text-red-600" />} label="Gagal" value={failedCount} />
       </div>
 
-      {/* Main Content */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column - Tasks */}
-        <div className="lg:col-span-2 space-y-6">
-          <Card className="p-4">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold text-gray-900">Task Terbaru</h2>
-              <Button variant="outline" size="sm">Lihat Semua</Button>
-            </div>
-            
-            <div>
-              {apiError && (
-                <div role="alert" className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-                  <p className="font-semibold">Backend belum tersambung</p>
-                  <p>{apiError}</p>
-                  <p className="mt-1">Jalankan FastAPI di port 8000. Task kini dimuat dari API, bukan data contoh.</p>
-                  <Button variant="outline" size="sm" className="mt-2" onClick={() => { setIsLoading(true); void loadHistory(); }}>Coba lagi</Button>
-                </div>
-              )}
-              <div className="space-y-4">
-              {isLoading ? <p className="py-6 text-center text-sm text-gray-500">Memuat task dari backend...</p> : tasks.length === 0 ? <p className="py-6 text-center text-sm text-gray-500">Belum ada task di backend. Kirim laporan di bawah untuk memulai.</p> : tasks.map(task => (
-                <TaskCard
-                  key={task.taskId}
-                  taskId={task.taskId}
-                  title={task.title}
-                  description={task.description}
-                  status={task.status}
-                  worker={task.worker}
-                  createdAt={task.createdAt}
-                  location={task.location}
-                  deviceType={task.deviceType}
-                  result={task.result}
-                />
-              ))}
-              </div>
-            </div>
-          </Card>
-
-          {/* Chat Input */}
-          <Card className="p-4">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Buat Task Baru</h2>
-            <ChatInput 
-              onSubmit={handleCreateTask}
-              isLoading={isCreating}
-              placeholder="Contoh: WiFi tidak bisa dipakai di Gedung A, lantai 2..."
-            />
-          </Card>
-        </div>
-
-        {/* Right Column - Campus Map */}
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.8fr)]">
         <div className="space-y-6">
-          <CampusMap buildings={sampleBuildings} />
-          
           <Card className="p-4">
-            <h2 className="text-lg font-semibold text-gray-900 mb-2">Status Perangkat</h2><p className="mb-3 text-xs text-amber-700">Simulasi UI — belum terhubung ke telemetry live.</p>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between p-2 hover:bg-gray-50 rounded-lg">
-                <div className="flex items-center">
-                  <Wifi className="w-5 h-5 text-gray-500 mr-2" />
-                  <span className="text-sm">WiFi Network</span>
-                </div>
-                <Badge variant="success">Operational</Badge>
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Buat laporan baru</h2>
+                <p className="text-sm text-gray-500">Contoh: Wi-Fi putus di Laboratorium Komputer 1.</p>
               </div>
-              
-              <div className="flex items-center justify-between p-2 hover:bg-gray-50 rounded-lg">
-                <div className="flex items-center">
-                  <Zap className="w-5 h-5 text-gray-500 mr-2" />
-                  <span className="text-sm">Power Supply</span>
-                </div>
-                <Badge variant="warning">Warning</Badge>
-              </div>
-              
-              <div className="flex items-center justify-between p-2 hover:bg-gray-50 rounded-lg">
-                <div className="flex items-center">
-                  <Building className="w-5 h-5 text-gray-500 mr-2" />
-                  <span className="text-sm">Server Room</span>
-                </div>
-                <Badge variant="success">Operational</Badge>
-              </div>
-              
-              <div className="flex items-center justify-between p-2 hover:bg-gray-50 rounded-lg">
-                <div className="flex items-center">
-                  <Users className="w-5 h-5 text-gray-500 mr-2" />
-                  <span className="text-sm">Access Control</span>
-                </div>
-                <Badge variant="success">Operational</Badge>
-              </div>
+              <Wifi className="h-5 w-5 text-cyan-600" />
             </div>
+            <ChatInput onSubmit={handleCreateTask} isLoading={isSubmitting} />
+            <p className="mt-3 text-xs text-gray-500">Data perangkat dan insiden pada prototipe ini berlabel SYNTHETIC.</p>
+          </Card>
+
+          <Card className="p-4">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Task & history</h2>
+                <p className="text-sm text-gray-500">Persistensi saat ini berlaku selama proses API berjalan.</p>
+              </div>
+              <Badge variant="secondary">{tasks.length} task</Badge>
+            </div>
+            {isLoading && tasks.length === 0 ? (
+              <div className="flex items-center gap-2 py-8 text-sm text-gray-500"><RefreshCw className="h-4 w-4 animate-spin" /> Memuat history...</div>
+            ) : tasks.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500">Belum ada task. Buat laporan pertama untuk memulai workflow.</div>
+            ) : (
+              <div className="space-y-2">
+                {tasks.map((task) => (
+                  <button
+                    key={task.task_id}
+                    type="button"
+                    onClick={() => setSelectedTaskId(task.task_id)}
+                    className={`w-full rounded-lg border p-3 text-left transition ${selectedTask?.task_id === task.task_id ? 'border-cyan-400 bg-cyan-50' : 'border-gray-200 hover:border-gray-300'}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-gray-900">{task.description}</p>
+                        <p className="mt-1 text-xs text-gray-500">{formatDate(task.created_at)} · {task.task_id.slice(0, 8)}</p>
+                      </div>
+                      <Badge variant={statusVariant(task.status)}>{task.status}</Badge>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </Card>
         </div>
+
+        <div className="space-y-6">
+          {selectedTask ? (
+            <>
+              <ExecutionTimeline
+                steps={selectedTask.steps.map((step) => ({
+                  id: step.step_id,
+                  name: step.name,
+                  status: step.status,
+                  sourceIds: step.source_ids,
+                }))}
+              />
+              {selectedTask.result ? <ResultCard task={selectedTask} /> : selectedTask.error ? (
+                <Card className="border-red-200 p-4">
+                  <h2 className="font-semibold text-red-800">Workflow gagal</h2>
+                  <p className="mt-2 text-sm text-red-700">{selectedTask.error.message}</p>
+                </Card>
+              ) : null}
+            </>
+          ) : (
+            <Card className="p-8 text-center text-sm text-gray-500">
+              <FileSearch className="mx-auto mb-3 h-8 w-8 text-gray-400" />
+              Pilih task untuk melihat execution inspector.
+            </Card>
+          )}
+        </div>
       </div>
+    </div>
+  );
+}
+
+function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; value: number }) {
+  return (
+    <Card className="flex items-center gap-3 p-4">
+      <div className="rounded-lg bg-gray-100 p-2">{icon}</div>
+      <div><p className="text-sm text-gray-500">{label}</p><p className="text-2xl font-semibold text-gray-900">{value}</p></div>
+    </Card>
+  );
+}
+
+function ResultCard({ task }: { task: Task }) {
+  const result = task.result;
+  if (!result) return null;
+  return (
+    <Card className="p-4">
+      <div className="mb-4 flex items-center justify-between">
+        <div><h2 className="font-semibold text-gray-900">Hasil analisis</h2><p className="text-xs text-gray-500">Task {task.task_id}</p></div>
+        <Badge variant="warning">{result.data_label}</Badge>
+      </div>
+      <ResultSection title="Temuan / fakta" items={result.facts.map((item) => `${item.dataset}: ${String(item.record.name ?? item.record.title ?? item.record.id)}`)} />
+      <ResultSection title="Interpretasi workflow" items={result.interpretation} />
+      <ResultSection title="Ketidakpastian" items={result.uncertainty} tone="warning" />
+      <ResultSection title="Rekomendasi" items={result.recommendations} />
+      <div className="mt-4 border-t border-gray-100 pt-3">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Evidence</p>
+        <div className="flex flex-wrap gap-2">{result.evidence.map((item) => <span key={item.source_id} className="inline-flex items-center gap-1 text-xs text-cyan-700"><ExternalLink className="h-3 w-3" />{item.source_id}</span>)}</div>
+      </div>
+    </Card>
+  );
+}
+
+function ResultSection({ title, items, tone = 'default' }: { title: string; items: string[]; tone?: 'default' | 'warning' }) {
+  return (
+    <div className="mb-4">
+      <p className={`mb-1 text-sm font-medium ${tone === 'warning' ? 'text-amber-700' : 'text-gray-700'}`}>{title}</p>
+      <ul className="space-y-1 text-sm text-gray-600">{items.map((item, index) => <li key={`${title}-${index}`} className="flex gap-2"><span>•</span><span>{item}</span></li>)}</ul>
     </div>
   );
 }

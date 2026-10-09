@@ -15,23 +15,28 @@ import {
 } from 'lucide-react';
 
 interface ChatInputProps {
-  onSubmit: (message: string, attachments?: File[], metadata?: { location?: string; deviceType?: string }) => void;
+  onSubmit: (message: string, attachments?: File[], context?: { worker: 'it_helpdesk'; location?: string; deviceType?: string }) => void;
   isLoading?: boolean;
   placeholder?: string;
 }
 
 export function ChatInput({ onSubmit, isLoading = false, placeholder = "Ketik pesan atau deskripsi insiden..." }: ChatInputProps) {
   const [message, setMessage] = useState('');
+  const [attachments, setAttachments] = useState<File[]>([]);
   const [location, setLocation] = useState('');
   const [deviceType, setDeviceType] = useState('');
-  const [attachments, setAttachments] = useState<File[]>([]);
+  const [worker, setWorker] = useState<'it_helpdesk'>('it_helpdesk');
   const [isRecording, setIsRecording] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (message.trim() || attachments.length > 0) {
-      onSubmit(message, attachments, { location: location.trim(), deviceType: deviceType.trim() });
+      onSubmit(message, attachments, {
+        worker,
+        location: location.trim() || undefined,
+        deviceType: deviceType.trim() || undefined,
+      });
       setMessage('');
       setAttachments([]);
     }
@@ -143,15 +148,31 @@ export function ChatInput({ onSubmit, isLoading = false, placeholder = "Ketik pe
         </div>
       </div>
 
-      {/* Additional input fields for IT Helpdesk */}
+      <div className="mt-3">
+        <label htmlFor="use-case" className="mb-1 block text-sm font-medium text-gray-700">
+          Use case
+        </label>
+        <select
+          id="use-case"
+          value={worker}
+          onChange={(event) => setWorker(event.target.value as 'it_helpdesk')}
+          disabled={isLoading}
+          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+        >
+          <option value="it_helpdesk">IT Helpdesk — incident triage</option>
+        </select>
+        <p className="mt-1 text-xs text-gray-500">Use case lain akan muncul setelah workflow backend tersedia.</p>
+      </div>
+
+      {/* Context fields for the selected use case */}
       <div className="mt-3 flex flex-wrap gap-2">
         <div className="flex-1 min-w-[200px]">
           <Input
             label="Lokasi (opsional)"
-            placeholder="Gedung A, Lantai 2"
+            placeholder="zone-A1 atau nama zona"
             className="text-sm"
             value={location}
-            onChange={(e) => setLocation(e.target.value)}
+            onChange={(event) => setLocation(event.target.value)}
           />
         </div>
         <div className="flex-1 min-w-[200px]">
@@ -160,7 +181,7 @@ export function ChatInput({ onSubmit, isLoading = false, placeholder = "Ketik pe
             placeholder="Wi-Fi, LAN, Server"
             className="text-sm"
             value={deviceType}
-            onChange={(e) => setDeviceType(e.target.value)}
+            onChange={(event) => setDeviceType(event.target.value)}
           />
         </div>
       </div>

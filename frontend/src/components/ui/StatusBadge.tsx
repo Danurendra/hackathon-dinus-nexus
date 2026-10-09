@@ -2,7 +2,7 @@ import { ReactNode } from 'react';
 
 interface StatusBadgeProps {
   children: ReactNode;
-  status: 'queued' | 'running' | 'completed' | 'failed' | 'waiting_for_approval' | 'cancelled';
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'waiting_for_approval' | 'cancelled' | 'skipped' | 'retrying';
   className?: string;
 }
 
@@ -43,6 +43,18 @@ export function StatusBadge({ children, status, className = '' }: StatusBadgePro
       bgColor: 'bg-gray-100', 
       textColor: 'text-gray-800',
       borderColor: 'border-gray-200'
+    },
+    skipped: {
+      text: 'Skipped',
+      bgColor: 'bg-yellow-100',
+      textColor: 'text-yellow-800',
+      borderColor: 'border-yellow-200'
+    },
+    retrying: {
+      text: 'Retrying',
+      bgColor: 'bg-yellow-100',
+      textColor: 'text-yellow-800',
+      borderColor: 'border-yellow-200'
     }
   };
 

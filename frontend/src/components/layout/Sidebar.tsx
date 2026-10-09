@@ -1,147 +1,53 @@
 'use client';
 
-import { useState } from 'react';
-import { 
-  Home, 
-  MessageSquare, 
-  FileText, 
-  Users, 
-  Building, 
-  MapPin, 
-  Settings, 
-  Bell, 
-  HelpCircle,
-  ChevronDown,
-  ChevronRight
-} from 'lucide-react';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { navigationItems } from '@/config/navigation';
+
+function isActive(pathname: string, href: string) {
+  return href === '/' ? pathname === '/' : pathname.startsWith(href);
+}
 
 export function Sidebar() {
-  const [openItems, setOpenItems] = useState<Record<string, boolean>>({
-    workers: true,
-    analytics: false
-  });
-
-  const toggleItem = (key: string) => {
-    setOpenItems(prev => ({
-      ...prev,
-      [key]: !prev[key]
-    }));
-  };
-
-  const menuItems = [
-    {
-      icon: Home,
-      label: 'Overview',
-      href: '/'
-    },
-    {
-      icon: MessageSquare,
-      label: 'AI Assistant',
-      href: '/assistant'
-    },
-    {
-      icon: FileText,
-      label: 'Tasks & History',
-      href: '/tasks'
-    },
-    {
-      icon: Bell,
-      label: 'Approvals',
-      href: '/approvals'
-    },
-    {
-      icon: Users,
-      label: 'Campus Workers',
-      href: '#',
-      children: [
-        { label: 'Admissions Staff', href: '/workers/admissions' },
-        { label: 'Finance Staff', href: '/workers/finance' },
-        { label: 'Academic Admin', href: '/workers/academic' },
-        { label: 'PDDikti Operator', href: '/workers/pddikti' },
-        { label: 'IT Helpdesk', href: '/workers/it-helpdesk' },
-        { label: 'Quality Assurance', href: '/workers/quality' },
-        { label: 'Career Center', href: '/workers/career' },
-        { label: 'Digital Archive', href: '/workers/archive' },
-      ]
-    },
-    {
-      icon: MapPin,
-      label: 'Campus Twin',
-      href: '/campus-twin'
-    },
-    {
-      icon: Building,
-      label: 'Knowledge Base',
-      href: '/knowledge'
-    },
-    {
-      icon: Settings,
-      label: 'Analytics',
-      href: '#',
-      children: [
-        { label: 'Token Usage', href: '/analytics/token' },
-        { label: 'Task Metrics', href: '/analytics/tasks' },
-        { label: 'System Health', href: '/analytics/system' },
-      ]
-    }
-  ];
+  const pathname = usePathname();
 
   return (
-    <aside className="w-64 bg-surface border-r border-border h-screen sticky top-0 overflow-y-auto">
+    <aside className="sticky top-0 hidden h-screen w-64 shrink-0 overflow-y-auto border-r border-slate-800 bg-slate-900 text-slate-300 md:block">
       <div className="p-4">
-        <div className="flex items-center space-x-2 mb-8">
-          <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-            <span className="text-white font-bold text-sm">DN</span>
-          </div>
-          <h2 className="text-lg font-semibold text-textPrimary">DinusNexus</h2>
-        </div>
+        <Link href="/" className="mb-8 flex items-center gap-2">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500 text-sm font-bold text-white">DN</span>
+          <span className="text-lg font-semibold text-white">DinusNexus</span>
+        </Link>
 
-        <nav className="space-y-1">
-          {menuItems.map((item, index) => (
-            <div key={index}>
-              {item.children ? (
-                <div>
-                  <button
-                    onClick={() => toggleItem(`item-${index}`)}
-                    className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-textSecondary hover:bg-surfaceHover transition-colors"
-                  >
-                    <div className="flex items-center space-x-3">
-                      <item.icon className="w-5 h-5" />
-                      <span>{item.label}</span>
-                    </div>
-                    {openItems[`item-${index}`] ? (
-                      <ChevronDown className="w-4 h-4" />
-                    ) : (
-                      <ChevronRight className="w-4 h-4" />
-                    )}
-                  </button>
-                  
-                  {openItems[`item-${index}`] && (
-                    <div className="ml-8 mt-1 space-y-1">
-                      {item.children.map((child, childIndex) => (
-                        <a
-                          key={childIndex}
-                          href={child.href}
-                          className="block px-3 py-2 rounded-lg text-sm text-textSecondary hover:bg-surfaceHover hover:text-textPrimary transition-colors"
-                        >
-                          {child.label}
-                        </a>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <a
-                  href={item.href}
-                  className="flex items-center space-x-3 px-3 py-2 rounded-lg text-textSecondary hover:bg-surfaceHover hover:text-textPrimary transition-colors"
-                >
-                  <item.icon className="w-5 h-5" />
-                  <span>{item.label}</span>
-                </a>
-              )}
-            </div>
-          ))}
+        <p className="mb-3 px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Workspace</p>
+        <nav aria-label="Primary navigation" className="space-y-1">
+          {navigationItems.map((item) => {
+            const active = isActive(pathname, item.href);
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-current={active ? 'page' : undefined}
+                className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                  active
+                    ? 'bg-indigo-500/15 text-indigo-200'
+                    : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                }`}
+              >
+                <Icon className={`h-4 w-4 ${active ? 'text-indigo-300' : 'text-slate-400'}`} />
+                <span>{item.label}</span>
+              </Link>
+            );
+          })}
         </nav>
+
+        <div className="mt-8 rounded-lg border border-slate-700 bg-slate-800/60 p-3">
+          <p className="text-xs font-medium text-white">Unified workspace</p>
+          <p className="mt-1 text-xs leading-5 text-slate-400">
+            Use cases tersedia dipilih saat membuat task, bukan sebagai aplikasi terpisah.
+          </p>
+        </div>
       </div>
     </aside>
   );

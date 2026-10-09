@@ -11,7 +11,8 @@ import {
   Zap,
   AlertTriangle,
   CheckCircle,
-  Clock
+  Clock,
+  X
 } from 'lucide-react';
 
 interface CampusBuilding {
