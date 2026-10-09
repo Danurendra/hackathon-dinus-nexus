@@ -51,7 +51,11 @@ def _schema():
 @pytest.fixture(autouse=True)
 def _clean_tasks():
     with engine.begin() as connection:
-        connection.execute(text("TRUNCATE TABLE tasks"))
+        connection.execute(
+            text(
+                "TRUNCATE TABLE execution_steps, task_runs, tasks RESTART IDENTITY CASCADE"
+            )
+        )
     yield
 
 

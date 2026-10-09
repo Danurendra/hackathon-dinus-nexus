@@ -13,9 +13,17 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.auth import require_api_key
 from src.data_adapter import search_helpdesk
-from src.db.models import Task
+from src.db.models import ExecutionStep, Task, TaskRun
 from src.db.session import Base, SessionLocal, engine
 from src.llm.analysis import LLMAnalysisError, analyze_findings
+
+# Actions that must not be executed without explicit human authorization.
+SENSITIVE_ACTIONS = {
+    "reset_account",
+    "restart_device",
+    "change_config",
+    "network_change",
+}
 
 
 @asynccontextmanager
@@ -56,6 +64,12 @@ class CreateTaskInput(BaseModel):
     description: str = Field(min_length=5, max_length=2000)
     location: str | None = None
     device_type: str | None = None
+    requested_action: str | None = Field(default=None, max_length=100)
+
+
+class ApprovalInput(BaseModel):
+    decision: Literal["approve", "reject"]
+    note: str | None = Field(default=None, max_length=500)
 
 
 class WorkflowState(TypedDict):
@@ -63,6 +77,8 @@ class WorkflowState(TypedDict):
     description: str
     location: str | None
     device_type: str | None
+    requested_action: str | None
+    requires_approval: bool
     status: str
     steps: list[dict]
     findings: dict
@@ -98,15 +114,83 @@ def serialize_task(task: Task) -> dict[str, Any]:
         "description": task.description,
         "location": task.location,
         "device_type": task.device_type,
+        "requested_action": task.requested_action,
         "status": task.status,
         "created_at": task.created_at.isoformat(),
         "steps": task.steps,
         "result": task.result,
         "error": task.error,
+        "approval": task.approval,
         "llm_model": task.llm_model,
         "input_tokens": task.input_tokens,
         "output_tokens": task.output_tokens,
     }
+
+
+def serialize_run(run: TaskRun) -> dict[str, Any]:
+    return {
+        "run_id": run.run_id,
+        "task_id": run.task_id,
+        "worker": run.worker,
+        "status": run.status,
+        "created_at": run.created_at.isoformat(),
+        "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+        "steps": [
+            {
+                "step_id": step.step_key,
+                "order": step.order_index,
+                "name": step.name,
+                "status": step.status,
+                "source_ids": step.source_ids,
+                "detail": step.detail,
+                "error": step.error,
+                "model": step.model,
+                "usage": step.usage,
+            }
+            for step in run.steps
+        ],
+    }
+
+
+def persist_run(db, task: Task, steps: list[dict]) -> None:
+    """Write the normalized run and its ordered steps. Idempotent per task."""
+    now = datetime.now(timezone.utc)
+    run = db.get(TaskRun, task.run_id)
+    if run is None:
+        run = TaskRun(
+            run_id=task.run_id,
+            task_id=task.task_id,
+            worker=task.worker,
+            status=task.status,
+            created_at=task.created_at,
+            finished_at=now,
+        )
+        db.add(run)
+    else:
+        run.worker = task.worker
+        run.status = task.status
+        run.finished_at = now
+
+    # Replace the step rows so repeated finalization stays in sync.
+    db.query(ExecutionStep).filter(
+        ExecutionStep.run_id == task.run_id
+    ).delete(synchronize_session=False)
+
+    for index, step in enumerate(steps, start=1):
+        db.add(
+            ExecutionStep(
+                run_id=task.run_id,
+                order_index=index,
+                step_key=step.get("step_id"),
+                name=step.get("name", ""),
+                status=step.get("status", ""),
+                source_ids=step.get("source_ids"),
+                detail=step.get("detail"),
+                error=step.get("error"),
+                model=step.get("model"),
+                usage=step.get("usage"),
+            )
+        )
 
 
 def extract_usage(result: dict | None) -> tuple[str | None, int | None, int | None]:
@@ -137,9 +221,14 @@ def inspect_report(state: WorkflowState) -> dict:
         if "id" in record
     ]
 
+    requested_action = (state.get("requested_action") or "").strip().lower() or None
+    requires_approval = requested_action in SENSITIVE_ACTIONS
+
     return {
         "status": "running",
         "findings": findings,
+        "requested_action": requested_action,
+        "requires_approval": requires_approval,
         "steps": [
             {
                 "step_id": "inspect_report",
@@ -266,14 +355,52 @@ def prepare_result(state: WorkflowState) -> dict:
     }
 
 
+def request_approval(state: WorkflowState) -> dict:
+    """Stop before a sensitive action and wait for a human decision."""
+    action = state.get("requested_action")
+    approval = {
+        "required": True,
+        "status": "pending",
+        "action": action,
+        "note": "No sensitive action is executed automatically.",
+    }
+
+    return {
+        "status": "waiting_for_approval",
+        "steps": state["steps"] + [
+            {
+                "step_id": "request_approval",
+                "name": "Await human approval",
+                "status": "waiting_for_approval",
+                "detail": f"Action '{action}' requires human approval.",
+            }
+        ],
+        "result": {**state["result"], "approval": approval},
+    }
+
+
 workflow = StateGraph(WorkflowState)
 workflow.add_node("inspect_report", inspect_report)
 workflow.add_node("analyze_evidence", analyze_evidence)
 workflow.add_node("prepare_result", prepare_result)
+workflow.add_node("request_approval", request_approval)
 workflow.add_edge(START, "inspect_report")
 workflow.add_edge("inspect_report", "analyze_evidence")
 workflow.add_edge("analyze_evidence", "prepare_result")
-workflow.add_edge("prepare_result", END)
+
+
+def route_after_prepare(state: WorkflowState) -> str:
+    if state.get("requires_approval"):
+        return "request_approval"
+    return END
+
+
+workflow.add_conditional_edges(
+    "prepare_result",
+    route_after_prepare,
+    {"request_approval": "request_approval", END: END},
+)
+workflow.add_edge("request_approval", END)
 
 helpdesk_graph = workflow.compile()
 
@@ -294,6 +421,7 @@ def _persist_failed_task(
             if steps is not None:
                 saved_task.steps = steps
             saved_task.error = {"code": code, "message": message}
+            persist_run(db, saved_task, saved_task.steps or [])
             db.commit()
     except SQLAlchemyError:
         pass
@@ -316,6 +444,7 @@ def create_task(
         description=payload.description,
         location=payload.location,
         device_type=payload.device_type,
+        requested_action=payload.requested_action,
         status="queued",
         created_at=datetime.now(timezone.utc),
         steps=[],
@@ -343,6 +472,8 @@ def create_task(
             "description": payload.description,
             "location": payload.location,
             "device_type": payload.device_type,
+            "requested_action": payload.requested_action,
+            "requires_approval": False,
             "status": "queued",
             "steps": [],
             "findings": {},
@@ -359,9 +490,13 @@ def create_task(
             saved_task.status = output["status"]
             saved_task.steps = output["steps"]
             saved_task.result = output["result"]
+            saved_task.requested_action = output.get("requested_action")
+            if output["status"] == "waiting_for_approval":
+                saved_task.approval = (output.get("result") or {}).get("approval")
             saved_task.llm_model = model
             saved_task.input_tokens = input_tokens
             saved_task.output_tokens = output_tokens
+            persist_run(db, saved_task, output["steps"])
             db.commit()
             db.refresh(saved_task)
             return serialize_task(saved_task)
@@ -410,6 +545,89 @@ def get_task(
                     detail="Task not found",
                 )
             return serialize_task(task)
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Database unavailable.",
+        ) from exc
+
+
+@app.post("/api/tasks/{task_id}/approval")
+def decide_task_approval(
+    task_id: str,
+    payload: ApprovalInput,
+    _: None = Depends(require_api_key),
+):
+    """Record a human approve/reject decision for a task awaiting approval."""
+    try:
+        with SessionLocal() as db:
+            task = db.get(Task, task_id)
+            if task is None:
+                raise HTTPException(status_code=404, detail="Task not found")
+            if task.status != "waiting_for_approval":
+                raise HTTPException(
+                    status_code=409,
+                    detail="Task is not waiting for approval.",
+                )
+
+            approved = payload.decision == "approve"
+            approval = {
+                **(task.approval or {}),
+                "status": "approved" if approved else "rejected",
+                "decision": payload.decision,
+                "note": payload.note,
+                "decided_at": datetime.now(timezone.utc).isoformat(),
+            }
+            task.approval = approval
+            task.status = "completed" if approved else "cancelled"
+
+            steps = list(task.steps or [])
+            steps.append(
+                {
+                    "step_id": "approval",
+                    "name": "Human approval decision",
+                    "status": task.status,
+                    "detail": f"Decision: {payload.decision}",
+                }
+            )
+            task.steps = steps
+
+            result = dict(task.result or {})
+            result["approval"] = approval
+            task.result = result
+
+            persist_run(db, task, steps)
+            db.commit()
+            db.refresh(task)
+            return serialize_task(task)
+    except HTTPException:
+        raise
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Database unavailable.",
+        ) from exc
+
+
+@app.get("/api/tasks/{task_id}/runs")
+def get_task_runs(
+    task_id: str,
+    _: None = Depends(require_api_key),
+):
+    """Read the normalized run and execution steps for a task."""
+    try:
+        with SessionLocal() as db:
+            task = db.get(Task, task_id)
+            if task is None:
+                raise HTTPException(status_code=404, detail="Task not found")
+            runs = db.scalars(
+                select(TaskRun)
+                .where(TaskRun.task_id == task_id)
+                .order_by(TaskRun.created_at.desc())
+            ).all()
+            return {"items": [serialize_run(run) for run in runs]}
+    except HTTPException:
+        raise
     except SQLAlchemyError as exc:
         raise HTTPException(
             status_code=503,
