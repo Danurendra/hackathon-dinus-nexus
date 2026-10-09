@@ -55,6 +55,7 @@ def test_graph_end_to_end_completes_with_filters():
     assert output["status"] == "completed"
     assert [step["step_id"] for step in output["steps"]] == [
         "inspect_report",
+        "analyze_evidence",
         "prepare_result",
     ]
 
@@ -62,6 +63,16 @@ def test_graph_end_to_end_completes_with_filters():
         record["id"] for record in output["findings"]["matches"]["devices"]
     }
     assert finding_devices == {"device-AP-A1-01", "device-AP-A1-02"}
+
+
+def test_analyze_evidence_is_skipped_when_llm_disabled():
+    output = helpdesk_graph.invoke(_initial_state())
+
+    analysis_step = next(
+        step for step in output["steps"] if step["step_id"] == "analyze_evidence"
+    )
+    assert analysis_step["status"] == "skipped"
+    assert output["result"]["analysis"] is None
 
 
 def test_graph_without_context_still_completes():

@@ -33,6 +33,9 @@ os.environ["DATABASE_URL"] = _test_url
 # Fixed key used by the authentication tests.
 os.environ["DINUSNEXUS_API_KEY"] = "test-api-key"
 
+# Keep the routine suite deterministic and free: no live LLM calls.
+os.environ["LLM_ENABLED"] = "false"
+
 from src.db import models  # noqa: E402,F401  (register models on Base.metadata)
 from src.db.session import Base, engine  # noqa: E402
 

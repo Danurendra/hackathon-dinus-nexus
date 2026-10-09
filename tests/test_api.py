@@ -44,6 +44,7 @@ def test_create_task_success_returns_grounded_result(client, api_key):
     assert body["result"]["evidence"]
     assert [step["step_id"] for step in body["steps"]] == [
         "inspect_report",
+        "analyze_evidence",
         "prepare_result",
     ]
 

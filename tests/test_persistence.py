@@ -2,6 +2,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.db.models import Task
 from src.db.session import SessionLocal, engine
+from src.llm.analysis import LLMAnalysisError
 
 
 def _auth(api_key):
@@ -87,3 +88,33 @@ def test_database_unavailable_returns_503(client, api_key, monkeypatch):
 
     assert response.status_code == 503
     assert "Database unavailable" in response.json()["detail"]
+
+
+def test_llm_failure_is_persisted_as_failed(client, api_key, monkeypatch):
+    monkeypatch.setenv("LLM_ENABLED", "true")
+
+    def boom(*args, **kwargs):
+        raise LLMAnalysisError("simulated provider failure")
+
+    monkeypatch.setattr("src.main.analyze_findings", boom)
+
+    response = client.post(
+        "/api/tasks",
+        headers=_auth(api_key),
+        json={"description": "jaringan down", "location": "zone-A1"},
+    )
+
+    assert response.status_code == 500
+    body = response.json()["detail"]
+    assert body["error"]["code"] == "LLM_ANALYSIS_FAILED"
+
+    with SessionLocal() as db:
+        row = db.get(Task, body["task_id"])
+
+    assert row is not None
+    assert row.status == "failed"
+    assert row.error["code"] == "LLM_ANALYSIS_FAILED"
+    assert row.result is None
+    step_states = [(s["step_id"], s["status"]) for s in row.steps]
+    assert ("inspect_report", "completed") in step_states
+    assert ("analyze_evidence", "failed") in step_states
