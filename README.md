@@ -48,7 +48,11 @@ Satu workflow operasional harus berjalan dari input sampai output melalui UI yan
 - [`docs/DOCUMENTATION_POLICY.md`](docs/DOCUMENTATION_POLICY.md): aturan file Markdown dan pemeliharaannya.
 - [`docs/DEVELOPMENT_PLAN.md`](docs/DEVELOPMENT_PLAN.md): urutan implementasi dan Definition of Done.
 - [`docs/TEAM_DEVELOPMENT_PLAN.md`](docs/TEAM_DEVELOPMENT_PLAN.md): pembagian tiga role, kerja paralel, checkpoint, dan workflow GitHub.
+- [`docs/FEATURE_TASK_ASSIGNMENT.md`](docs/FEATURE_TASK_ASSIGNMENT.md): breakdown tugas per fitur untuk tiga anggota tim.
+- [`docs/TECH_STACK_RECOMMENDATION.md`](docs/TECH_STACK_RECOMMENDATION.md): analisis dan rekomendasi tech stack.
+- [`docs/MCP_PLUGINS.md`](docs/MCP_PLUGINS.md): plugin OpenCode dan tools development.
 - [`docs/DECISIONS.md`](docs/DECISIONS.md): keputusan final versus hal yang belum ditentukan.
+- [`docs/UI_COMPONENTS.md`](docs/UI_COMPONENTS.md): dokumentasi komponen UI DinusNexus.
 
 ## Cara menggunakan dokumen ini
 
