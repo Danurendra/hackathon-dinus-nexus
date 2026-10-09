@@ -18,7 +18,29 @@ import {
   Building
 } from 'lucide-react';
 
-// Sample data
+type TaskStatus = 'queued' | 'running' | 'completed' | 'failed' | 'waiting_for_approval' | 'cancelled';
+
+interface DashboardTask {
+  taskId: string;
+  title: string;
+  description: string;
+  status: TaskStatus;
+  worker: string;
+  createdAt: string;
+  location: string;
+  deviceType: string;
+  result?: {
+    facts?: Array<{ dataset: string; record: Record<string, unknown> }>;
+    interpretation?: string[];
+    uncertainty?: string[];
+    recommendations?: string[];
+    evidence?: Array<{ source_id: string; dataset: string }>;
+    data_label?: string;
+  } | null;
+}
+
+const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '');
+
 const sampleBuildings = [
   { id: 'bldg-a', name: 'Gedung A', x: 25, y: 30, status: 'operational', devices: 45, incidents: 2 },
   { id: 'bldg-b', name: 'Gedung B', x: 75, y: 40, status: 'warning', devices: 32, incidents: 5 },
@@ -26,58 +48,65 @@ const sampleBuildings = [
   { id: 'bldg-d', name: 'Gedung D', x: 20, y: 75, status: 'maintenance', devices: 15, incidents: 0 },
 ];
 
-const sampleTasks = [
-  {
-    taskId: 'task-001',
-    title: 'Masalah WiFi di Gedung A',
-    description: 'Pengguna tidak bisa terhubung ke jaringan WiFi di lantai 2 gedung A',
-    status: 'running',
-    worker: 'IT Helpdesk',
-    createdAt: '2026-10-09 14:30',
-    location: 'Gedung A, Lantai 2',
-    deviceType: 'WiFi'
-  },
-  {
-    taskId: 'task-002',
-    title: 'Reset akun mahasiswa',
-    description: 'Mahasiswa ingin reset akun email kampus',
-    status: 'completed',
-    worker: 'IT Helpdesk',
-    createdAt: '2026-10-09 13:15',
-    location: 'Kantor IT',
-    deviceType: 'Email'
-  },
-  {
-    taskId: 'task-003',
-    title: 'Perbaikan printer',
-    description: 'Printer di ruang kuliah 3 tidak bisa mencetak',
-    status: 'queued',
-    worker: 'IT Helpdesk',
-    createdAt: '2026-10-09 12:45',
-    location: 'Ruang Kuliah 3',
-    deviceType: 'Printer'
-  }
-];
+function mapApiTask(raw: any): DashboardTask {
+  return {
+    taskId: raw.task_id,
+    title: raw.description?.length > 30 ? raw.description.slice(0, 30) + '...' : raw.description,
+    description: raw.description,
+    status: raw.status,
+    worker: raw.worker === 'it_helpdesk' ? 'IT Helpdesk' : raw.worker,
+    createdAt: raw.created_at ? new Date(raw.created_at).toLocaleString() : 'Waktu tidak tersedia',
+    location: raw.location || 'Tidak ditentukan',
+    deviceType: raw.device_type || 'Tidak ditentukan',
+    result: raw.result || null,
+  };
+}
 
 export default function HomePage() {
-  const [tasks, setTasks] = useState(sampleTasks);
-  const [newTaskDescription, setNewTaskDescription] = useState('');
+  const [tasks, setTasks] = useState<DashboardTask[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isCreating, setIsCreating] = useState(false);
+  const [apiError, setApiError] = useState('');
 
-  const handleCreateTask = (message: string) => {
-    if (message.trim()) {
-      const newTask = {
-        taskId: `task-${tasks.length + 1}`,
-        title: message.substring(0, 30) + (message.length > 30 ? '...' : ''),
-        description: message,
-        status: 'queued',
-        worker: 'IT Helpdesk',
-        createdAt: new Date().toLocaleString(),
-        location: 'Tidak ditentukan',
-        deviceType: 'Tidak ditentukan'
-      };
-      
-      setTasks([newTask, ...tasks]);
-      setNewTaskDescription('');
+  const loadHistory = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/history`, { cache: 'no-store' });
+      if (!response.ok) throw new Error(`Backend merespons HTTP ${response.status}`);
+      const data = await response.json();
+      setTasks((data.items || []).map(mapApiTask));
+      setApiError('');
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : 'Backend tidak dapat dihubungi');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadHistory();
+  }, []);
+
+  const handleCreateTask = async (message: string) => {
+    if (!message.trim() || isCreating) return;
+    setIsCreating(true);
+    setApiError('');
+    try {
+      const response = await fetch(`${API_BASE}/api/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ worker: 'it_helpdesk', description: message.trim() }),
+      });
+      if (!response.ok) {
+        const detail = await response.json().catch(() => null);
+        const messageFromApi = detail?.detail?.error?.message || detail?.detail || `Gagal membuat task (HTTP ${response.status})`;
+        throw new Error(typeof messageFromApi === 'string' ? messageFromApi : JSON.stringify(messageFromApi));
+      }
+      const created = mapApiTask(await response.json());
+      setTasks((current) => [created, ...current.filter((task) => task.taskId !== created.taskId)]);
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : 'Task gagal dibuat');
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -90,7 +119,7 @@ export default function HomePage() {
           <p className="text-gray-600">Selamat datang di DinusNexus</p>
         </div>
         <div className="flex space-x-2">
-          <Badge variant="success">Online</Badge>
+          <Badge variant={apiError ? "warning" : "success"}>{apiError ? "Backend offline" : "API connected"}</Badge>
           <Badge variant="info">IT Helpdesk</Badge>
         </div>
       </div>
@@ -162,8 +191,17 @@ export default function HomePage() {
               <Button variant="outline" size="sm">Lihat Semua</Button>
             </div>
             
-            <div className="space-y-4">
-              {tasks.map(task => (
+            <div>
+              {apiError && (
+                <div role="alert" className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                  <p className="font-semibold">Backend belum tersambung</p>
+                  <p>{apiError}</p>
+                  <p className="mt-1">Jalankan FastAPI di port 8000. Task kini dimuat dari API, bukan data contoh.</p>
+                  <Button variant="outline" size="sm" className="mt-2" onClick={() => { setIsLoading(true); void loadHistory(); }}>Coba lagi</Button>
+                </div>
+              )}
+              <div className="space-y-4">
+              {isLoading ? <p className="py-6 text-center text-sm text-gray-500">Memuat task dari backend...</p> : tasks.length === 0 ? <p className="py-6 text-center text-sm text-gray-500">Belum ada task di backend. Kirim laporan di bawah untuk memulai.</p> : tasks.map(task => (
                 <TaskCard
                   key={task.taskId}
                   taskId={task.taskId}
@@ -176,6 +214,7 @@ export default function HomePage() {
                   deviceType={task.deviceType}
                 />
               ))}
+              </div>
             </div>
           </Card>
 
@@ -184,7 +223,8 @@ export default function HomePage() {
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Buat Task Baru</h2>
             <ChatInput 
               onSubmit={handleCreateTask}
-              placeholder="Deskripsikan masalah atau permintaan baru..."
+              isLoading={isCreating}
+              placeholder="Contoh: WiFi tidak bisa dipakai di Gedung A, lantai 2..."
             />
           </Card>
         </div>
@@ -194,7 +234,7 @@ export default function HomePage() {
           <CampusMap buildings={sampleBuildings} />
           
           <Card className="p-4">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Status Perangkat</h2>
+            <h2 className="text-lg font-semibold text-gray-900 mb-2">Status Perangkat</h2><p className="mb-3 text-xs text-amber-700">Simulasi UI — belum terhubung ke telemetry live.</p>
             <div className="space-y-3">
               <div className="flex items-center justify-between p-2 hover:bg-gray-50 rounded-lg">
                 <div className="flex items-center">
