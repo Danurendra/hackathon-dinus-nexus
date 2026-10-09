@@ -5,9 +5,10 @@ from typing import Any, Literal, TypedDict
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.auth import require_api_key
@@ -29,6 +30,24 @@ app = FastAPI(
     title="DinusNexus API",
     version="0.1.0",
     lifespan=lifespan,
+)
+
+
+def cors_origins() -> list[str]:
+    raw = os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000",
+    )
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+
+# Allow the frontend (served from another origin) to call the API.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins(),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -84,7 +103,24 @@ def serialize_task(task: Task) -> dict[str, Any]:
         "steps": task.steps,
         "result": task.result,
         "error": task.error,
+        "llm_model": task.llm_model,
+        "input_tokens": task.input_tokens,
+        "output_tokens": task.output_tokens,
     }
+
+
+def extract_usage(result: dict | None) -> tuple[str | None, int | None, int | None]:
+    """Pull ``(model, input_tokens, output_tokens)`` from a workflow result."""
+    analysis = (result or {}).get("analysis") or {}
+    model = analysis.get("model")
+    usage = analysis.get("usage") or {}
+    if not isinstance(usage, dict):
+        return model, None, None
+    return (
+        model,
+        usage.get("input_tokens"),
+        usage.get("output_tokens"),
+    )
 
 
 def inspect_report(state: WorkflowState) -> dict:
@@ -319,9 +355,13 @@ def create_task(
             if saved_task is None:
                 raise RuntimeError("Task disappeared from database.")
 
+            model, input_tokens, output_tokens = extract_usage(output.get("result"))
             saved_task.status = output["status"]
             saved_task.steps = output["steps"]
             saved_task.result = output["result"]
+            saved_task.llm_model = model
+            saved_task.input_tokens = input_tokens
+            saved_task.output_tokens = output_tokens
             db.commit()
             db.refresh(saved_task)
             return serialize_task(saved_task)
@@ -393,3 +433,72 @@ def get_history(
             status_code=503,
             detail="Database unavailable.",
         ) from exc
+
+
+@app.get("/api/metrics/tokens")
+def get_token_metrics(
+    _: None = Depends(require_api_key),
+):
+    """Aggregate LLM token usage across all persisted tasks."""
+    try:
+        with SessionLocal() as db:
+            total_tasks = db.scalar(select(func.count()).select_from(Task)) or 0
+
+            input_total, output_total, tasks_with_usage = db.execute(
+                select(
+                    func.coalesce(func.sum(Task.input_tokens), 0),
+                    func.coalesce(func.sum(Task.output_tokens), 0),
+                    func.count(Task.input_tokens),
+                )
+            ).one()
+
+            by_model = [
+                {
+                    "model": model,
+                    "tasks": tasks,
+                    "input_tokens": input_sum or 0,
+                    "output_tokens": output_sum or 0,
+                }
+                for model, tasks, input_sum, output_sum in db.execute(
+                    select(
+                        Task.llm_model,
+                        func.count(),
+                        func.coalesce(func.sum(Task.input_tokens), 0),
+                        func.coalesce(func.sum(Task.output_tokens), 0),
+                    )
+                    .where(Task.llm_model.isnot(None))
+                    .group_by(Task.llm_model)
+                ).all()
+            ]
+
+            items = [
+                {
+                    "task_id": task.task_id,
+                    "model": task.llm_model,
+                    "input_tokens": task.input_tokens,
+                    "output_tokens": task.output_tokens,
+                    "created_at": task.created_at.isoformat(),
+                }
+                for task in db.scalars(
+                    select(Task)
+                    .where(Task.input_tokens.isnot(None))
+                    .order_by(Task.created_at.desc())
+                ).all()
+            ]
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Database unavailable.",
+        ) from exc
+
+    return {
+        "totals": {
+            "tasks": int(total_tasks),
+            "tasks_with_usage": int(tasks_with_usage),
+            "input_tokens": int(input_total),
+            "output_tokens": int(output_total),
+            "unavailable": int(total_tasks) - int(tasks_with_usage),
+        },
+        "by_model": by_model,
+        "items": items,
+    }

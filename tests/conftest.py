@@ -42,9 +42,10 @@ from src.db.session import Base, engine  # noqa: E402
 
 @pytest.fixture(scope="session", autouse=True)
 def _schema():
+    # Ensure the schema exists. Rows are cleaned per test; the schema is left
+    # in place so it stays consistent with the Alembic migration state.
     Base.metadata.create_all(bind=engine)
     yield
-    Base.metadata.drop_all(bind=engine)
 
 
 @pytest.fixture(autouse=True)

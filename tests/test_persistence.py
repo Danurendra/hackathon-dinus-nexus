@@ -118,3 +118,39 @@ def test_llm_failure_is_persisted_as_failed(client, api_key, monkeypatch):
     step_states = [(s["step_id"], s["status"]) for s in row.steps]
     assert ("inspect_report", "completed") in step_states
     assert ("analyze_evidence", "failed") in step_states
+
+
+def test_token_usage_is_persisted_and_aggregated(client, api_key, monkeypatch):
+    monkeypatch.setenv("LLM_ENABLED", "true")
+    monkeypatch.setattr(
+        "src.main.analyze_findings",
+        lambda *a, **k: {
+            "summary": "s",
+            "findings": ["f"],
+            "recommendations": ["r"],
+            "uncertainty": ["u"],
+            "model": "gpt-4o-mini",
+            "usage": {"input_tokens": 100, "output_tokens": 20},
+        },
+    )
+
+    created = client.post(
+        "/api/tasks",
+        headers=_auth(api_key),
+        json={"description": "jaringan down", "location": "zone-A1"},
+    )
+    assert created.status_code == 201
+
+    with SessionLocal() as db:
+        row = db.get(Task, created.json()["task_id"])
+    assert row.llm_model == "gpt-4o-mini"
+    assert row.input_tokens == 100
+    assert row.output_tokens == 20
+
+    metrics = client.get("/api/metrics/tokens", headers=_auth(api_key)).json()
+    assert metrics["totals"]["tasks_with_usage"] == 1
+    assert metrics["totals"]["input_tokens"] == 100
+    assert metrics["totals"]["output_tokens"] == 20
+    assert metrics["by_model"][0]["model"] == "gpt-4o-mini"
+    assert metrics["by_model"][0]["tasks"] == 1
+    assert metrics["items"][0]["task_id"] == created.json()["task_id"]

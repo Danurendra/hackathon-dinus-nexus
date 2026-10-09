@@ -16,6 +16,7 @@ def test_protected_endpoints_require_api_key(client):
     assert client.post("/api/tasks", json={"description": "jaringan down"}).status_code == 401
     assert client.get("/api/tasks/anything").status_code == 401
     assert client.get("/api/history").status_code == 401
+    assert client.get("/api/metrics/tokens").status_code == 401
 
 
 def test_protected_endpoints_reject_wrong_api_key(client):
@@ -145,3 +146,41 @@ def test_create_task_input_model_defaults():
     assert payload.worker == "it_helpdesk"
     assert payload.location is None
     assert payload.device_type is None
+
+
+def test_cors_preflight_allows_configured_origin(client):
+    response = client.options(
+        "/api/tasks",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+
+
+def test_cors_header_present_on_response(client):
+    response = client.get("/health", headers={"Origin": "http://127.0.0.1:3000"})
+
+    assert response.headers.get("access-control-allow-origin") == "http://127.0.0.1:3000"
+
+
+def test_token_metrics_with_no_usage(client, api_key):
+    client.post(
+        "/api/tasks",
+        headers=_auth(api_key),
+        json={"description": "jaringan down", "location": "zone-A1"},
+    )
+
+    response = client.get("/api/metrics/tokens", headers=_auth(api_key))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["totals"]["tasks"] == 1
+    assert body["totals"]["tasks_with_usage"] == 0
+    assert body["totals"]["unavailable"] == 1
+    assert body["totals"]["input_tokens"] == 0
+    assert body["by_model"] == []
+    assert body["items"] == []

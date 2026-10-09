@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import DateTime, JSON, String, Text
+from sqlalchemy import DateTime, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.session import Base
@@ -45,5 +45,19 @@ class Task(Base):
     )
     error: Mapped[dict[str, Any] | None] = mapped_column(
         JSON,
+        nullable=True,
+    )
+
+    # LLM usage metadata (nullable: populated only when the LLM step runs).
+    llm_model: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+    input_tokens: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    output_tokens: Mapped[int | None] = mapped_column(
+        Integer,
         nullable=True,
     )
