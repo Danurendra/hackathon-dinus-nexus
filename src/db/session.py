@@ -10,7 +10,11 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL belum diatur di file .env")
 
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+engine_options = {"pool_pre_ping": True}
+if DATABASE_URL.startswith(("postgresql://", "postgres://")):
+    engine_options["connect_args"] = {"connect_timeout": 3}
+
+engine = create_engine(DATABASE_URL, **engine_options)
 SessionLocal = sessionmaker(
     bind=engine,
     autoflush=False,

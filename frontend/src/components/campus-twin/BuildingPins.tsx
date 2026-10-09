@@ -2,10 +2,10 @@
 
 import { useMemo } from 'react';
 import { project } from '@/lib/isometric';
+import { getBuildingAnchor, isPointInPolygon } from '@/lib/spatial';
 import { campusBuildings } from '@/data/campusGeometry';
 import { getOperationalData } from '@/data/campusTwinExtended';
 import { getPalette, type ColorMode } from '@/lib/campusPalette';
-import { Badge } from '@/components/ui/Badge';
 
 interface BuildingPinsProps {
   colorMode: ColorMode;
@@ -13,31 +13,72 @@ interface BuildingPinsProps {
   onSelectBuilding: (id: string) => void;
 }
 
+interface PinData {
+  id: string;
+  name: string;
+  /** Anchor projected at roof height (where the marker sits). */
+  markerX: number;
+  markerY: number;
+  /** Label anchor, above the marker. */
+  labelY: number;
+  status: string;
+  isSelected: boolean;
+  geometryMissing: boolean;
+}
+
 /**
- * HTML overlay for building labels and pins.
- * Positioned using projected coordinates from SVG space.
+ * SVG overlay for building markers and labels.
+ *
+ * Rendered as a child of <IsometricCanvas>, so it shares the exact same
+ * projection and viewport transform as the building meshes. Markers are
+ * anchored to the area-weighted centroid of each building's footprint
+ * (projected at roof height), which guarantees they stay attached during
+ * zoom and pan.
+ *
+ * Buildings without valid geometry are skipped and reported separately;
+ * no geographic position is fabricated.
  */
 export function BuildingPins({ colorMode, selectedBuildingId, onSelectBuilding }: BuildingPinsProps) {
   const palette = useMemo(() => getPalette(colorMode), [colorMode]);
 
-  const pins = useMemo(() => {
-    return campusBuildings.map((building) => {
-      const cx = building.footprint.reduce((s, p) => s + p[0], 0) / building.footprint.length;
-      const cy = building.footprint.reduce((s, p) => s + p[1], 0) / building.footprint.length;
-      const projected = project(cx, cy);
+  const floorHeight = 3.6;
+
+  const { pins, missing } = useMemo(() => {
+    const pins: PinData[] = [];
+    const missing: string[] = [];
+
+    for (const building of campusBuildings) {
+      const anchor = getBuildingAnchor(building);
+      if (!anchor) {
+        missing.push(building.name);
+        continue;
+      }
+
+      // Anchor is expected to be inside the footprint; if not (odd polygon),
+      // skip rather than place a misleading marker.
+      if (!isPointInPolygon(anchor, building.footprint)) {
+        missing.push(building.name);
+        continue;
+      }
+
+      const roofZ = building.floors * floorHeight;
+      const marker = project(anchor[0], anchor[1], roofZ);
 
       const opData = getOperationalData(building.id);
-      const status = opData?.status ?? 'operational';
 
-      return {
+      pins.push({
         id: building.id,
         name: building.name,
-        x: projected.x,
-        y: projected.y,
-        status,
+        markerX: marker.x,
+        markerY: marker.y,
+        labelY: marker.y - 12,
+        status: opData?.status ?? 'operational',
         isSelected: selectedBuildingId === building.id,
-      };
-    });
+        geometryMissing: false,
+      });
+    }
+
+    return { pins, missing };
   }, [selectedBuildingId]);
 
   const statusColors: Record<string, string> = {
@@ -48,41 +89,96 @@ export function BuildingPins({ colorMode, selectedBuildingId, onSelectBuilding }
   };
 
   return (
-    <div className="absolute inset-0 pointer-events-none">
-      {pins.map((pin) => (
-        <button
-          key={pin.id}
-          type="button"
-          onClick={() => onSelectBuilding(pin.id)}
-          className={`absolute -translate-x-1/2 -translate-y-1/2 pointer-events-auto transition-transform hover:scale-110 ${
-            pin.isSelected ? 'scale-110 z-20' : 'z-10'
-          }`}
-          style={{
-            left: `${((pin.x + 1000) / 3000) * 100}%`,
-            top: `${((pin.y + 1000) / 3000) * 100}%`,
-          }}
-        >
-          <div className="flex flex-col items-center gap-1">
-            {/* Status dot */}
-            <div
-              className="h-3 w-3 rounded-full border-2 border-white shadow-md"
-              style={{ backgroundColor: statusColors[pin.status] }}
+    <g>
+      {/* Missing geometry fallback notice, printed off the campus area. */}
+      {missing.length > 0 && (
+        <g aria-hidden="true">
+          <text x={0} y={0} fontSize={10} fill={palette.warning}>
+            Geometri tidak tersedia: {missing.join(', ')}
+          </text>
+        </g>
+      )}
+
+      {pins.map((pin) => {
+        const labelWidth = Math.max(48, pin.name.length * 5.4 + 12);
+        const labelHeight = 14;
+        const dotColor = statusColors[pin.status] ?? palette.textLow;
+
+        return (
+          <g
+            key={pin.id}
+            role="button"
+            tabIndex={0}
+            aria-label={`Pilih ${pin.name}, status ${pin.status}`}
+            onClick={() => onSelectBuilding(pin.id)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                onSelectBuilding(pin.id);
+              }
+            }}
+            className="cursor-pointer"
+          >
+            {/* Connection from marker to centroid at ground level, so the label
+                is unambiguously attached to its own building. */}
+            <line
+              x1={pin.markerX}
+              y1={pin.markerY}
+              x2={pin.markerX}
+              y2={pin.labelY - 2}
+              stroke={dotColor}
+              strokeWidth={1}
+              opacity={0.6}
             />
+
+            {/* Status marker */}
+            <circle
+              cx={pin.markerX}
+              cy={pin.markerY}
+              r={pin.isSelected ? 5 : 4}
+              fill={dotColor}
+              stroke="#FFFFFF"
+              strokeWidth={1.5}
+            />
+
             {/* Label */}
-            <div
-              className={`px-2 py-1 rounded text-[10px] font-semibold whitespace-nowrap shadow-sm ${
-                pin.isSelected ? 'bg-white text-gray-900' : 'bg-white/80 text-gray-700'
-              }`}
-              style={{
-                borderColor: pin.isSelected ? palette.accent : 'transparent',
-                borderWidth: pin.isSelected ? '2px' : '0',
-              }}
+            <rect
+              x={pin.markerX - labelWidth / 2}
+              y={pin.labelY - labelHeight}
+              width={labelWidth}
+              height={labelHeight}
+              rx={3}
+              fill={pin.isSelected ? palette.accent : palette.panelBg}
+              stroke={pin.isSelected ? palette.accent : palette.panelBorder}
+              strokeWidth={pin.isSelected ? 2 : 1}
+              opacity={colorMode === 'ops' && !pin.isSelected ? 0.85 : 1}
+            />
+            <text
+              x={pin.markerX}
+              y={pin.labelY - 4}
+              textAnchor="middle"
+              fontSize={9}
+              fontWeight={600}
+              fill={pin.isSelected ? '#FFFFFF' : palette.textHigh}
             >
               {pin.name}
-            </div>
-          </div>
-        </button>
-      ))}
-    </div>
+            </text>
+
+            {/* Selection ring */}
+            {pin.isSelected && (
+              <circle
+                cx={pin.markerX}
+                cy={pin.markerY}
+                r={9}
+                fill="none"
+                stroke={palette.accent}
+                strokeWidth={1.5}
+                opacity={0.8}
+              />
+            )}
+          </g>
+        );
+      })}
+    </g>
   );
 }

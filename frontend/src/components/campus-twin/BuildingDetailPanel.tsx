@@ -153,7 +153,7 @@ export function BuildingDetailPanel({ buildingId, colorMode, onClose }: Building
 
       {/* Footer note */}
       <p className="mt-4 text-[10px] text-gray-500 leading-tight">
-        Metadata bangunan dan status map ini adalah fixture visual sintetis;
+        Metadata bangunan dan status map ini adalah data ilustrasi;
         status workflow berasal dari backend.
       </p>
     </Card>

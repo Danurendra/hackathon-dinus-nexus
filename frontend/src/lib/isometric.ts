@@ -21,8 +21,15 @@ export const KZ = 2.3;
 /** Campus world extents in meters. */
 export const CAMPUS_SIZE = 220;
 
-/** SVG viewBox calibrated to the campus plan (see docs/CAMPUS_TWIN_DESIGN.md §4). */
-export const CAMPUS_VIEWBOX = '-760 0 1520 830';
+/**
+ * Fallback viewBox used only when no geometry bounds are available.
+ * Prefer `boundsToViewBox(getCampusIsoBounds(buildings))` from spatial.ts,
+ * which derives the viewport from the actual projected geometry.
+ */
+export const FALLBACK_VIEWBOX = '0 0 1000 1000';
+
+/** Meters per building floor, used for roof height in the projected bounds. */
+export const FLOOR_HEIGHT_M = 3.6;
 
 export function project(wx: number, wy: number, wz = 0): IsoPoint {
   return {

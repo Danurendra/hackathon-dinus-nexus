@@ -3,8 +3,9 @@
 import { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import { ZoomIn, ZoomOut, RotateCcw, Maximize2 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
-import { project, KX, KY, KZ, CAMPUS_VIEWBOX } from '@/lib/isometric';
-import { campusBuildings, getCampusBounds } from '@/data/campusGeometry';
+import { FALLBACK_VIEWBOX } from '@/lib/isometric';
+import { getCampusIsoBounds, boundsToViewBox } from '@/lib/spatial';
+import { campusBuildings } from '@/data/campusGeometry';
 import { getPalette, type ColorMode } from '@/lib/campusPalette';
 
 interface IsometricCanvasProps {
@@ -14,14 +15,36 @@ interface IsometricCanvasProps {
   children?: React.ReactNode;
 }
 
+/**
+ * Parse a viewBox string into [x, y, width, height] numbers.
+ */
+function parseViewBox(viewBox: string): [number, number, number, number] {
+  const [x, y, w, h] = viewBox.split(' ').map(Number);
+  return [x, y, w, h];
+}
+
 export function IsometricCanvas({
   colorMode,
-  selectedBuildingId,
-  onSelectBuilding,
   children,
 }: IsometricCanvasProps) {
   const svgRef = useRef<SVGSVGElement>(null);
-  const [viewBox, setViewBox] = useState(CAMPUS_VIEWBOX);
+
+  // Authoritative viewport: derived from the projected geometry of all buildings
+  // so every building and marker is guaranteed to be inside the viewBox.
+  const bounds = useMemo(() => {
+    const b = getCampusIsoBounds(campusBuildings);
+    if (!Number.isFinite(b.minX) || !Number.isFinite(b.minY)) {
+      return null;
+    }
+    return b;
+  }, []);
+
+  const defaultViewBox = useMemo(
+    () => (bounds ? boundsToViewBox(bounds) : FALLBACK_VIEWBOX),
+    [bounds]
+  );
+
+  const [viewBox, setViewBox] = useState(defaultViewBox);
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
 
@@ -29,7 +52,7 @@ export function IsometricCanvas({
 
   // Zoom handlers
   const handleZoomIn = useCallback(() => {
-    const [x, y, w, h] = viewBox.split(' ').map(Number);
+    const [x, y, w, h] = parseViewBox(viewBox);
     const newW = w * 0.8;
     const newH = h * 0.8;
     const newX = x + (w - newW) / 2;
@@ -38,7 +61,7 @@ export function IsometricCanvas({
   }, [viewBox]);
 
   const handleZoomOut = useCallback(() => {
-    const [x, y, w, h] = viewBox.split(' ').map(Number);
+    const [x, y, w, h] = parseViewBox(viewBox);
     const newW = w * 1.25;
     const newH = h * 1.25;
     const newX = x + (w - newW) / 2;
@@ -47,8 +70,8 @@ export function IsometricCanvas({
   }, [viewBox]);
 
   const handleReset = useCallback(() => {
-    setViewBox(CAMPUS_VIEWBOX);
-  }, []);
+    setViewBox(defaultViewBox);
+  }, [defaultViewBox]);
 
   const handleFullscreen = useCallback(() => {
     if (svgRef.current) {
@@ -61,22 +84,19 @@ export function IsometricCanvas({
   }, []);
 
   // Pan handlers
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      if (e.button === 0) {
-        setIsPanning(true);
-        setPanStart({ x: e.clientX, y: e.clientY });
-      }
-    },
-    []
-  );
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.button === 0) {
+      setIsPanning(true);
+      setPanStart({ x: e.clientX, y: e.clientY });
+    }
+  }, []);
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
       if (isPanning) {
         const dx = e.clientX - panStart.x;
         const dy = e.clientY - panStart.y;
-        const [x, y, w, h] = viewBox.split(' ').map(Number);
+        const [x, y, w, h] = parseViewBox(viewBox);
         setViewBox(`${x - dx} ${y - dy} ${w} ${h}`);
         setPanStart({ x: e.clientX, y: e.clientY });
       }
@@ -96,7 +116,7 @@ export function IsometricCanvas({
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
       const factor = e.deltaY > 0 ? 1.1 : 0.9;
-      const [x, y, w, h] = viewBox.split(' ').map(Number);
+      const [x, y, w, h] = parseViewBox(viewBox);
       const newW = w * factor;
       const newH = h * factor;
       const newX = x + (w - newW) / 2;
@@ -108,22 +128,34 @@ export function IsometricCanvas({
     return () => svg.removeEventListener('wheel', handleWheel);
   }, [viewBox]);
 
-  // Calculate building positions for click detection
-  const buildingPositions = useMemo(() => {
-    return campusBuildings.map((b) => {
-      const cx = b.footprint.reduce((s, p) => s + p[0], 0) / b.footprint.length;
-      const cy = b.footprint.reduce((s, p) => s + p[1], 0) / b.footprint.length;
-      const projected = project(cx, cy);
-      return { id: b.id, x: projected.x, y: projected.y, width: 40, height: 30 };
-    });
-  }, []);
+  // Background covers a large area around the campus bounds.
+  const background = useMemo(() => {
+    const b = bounds ?? { minX: 0, minY: 0, maxX: 1000, maxY: 1000 };
+    const w = b.maxX - b.minX;
+    const h = b.maxY - b.minY;
+    const margin = Math.max(w, h);
+    return {
+      x: b.minX - margin,
+      y: b.minY - margin,
+      width: w + margin * 2,
+      height: h + margin * 2,
+    };
+  }, [bounds]);
 
-  const handleBuildingClick = useCallback(
-    (id: string) => {
-      onSelectBuilding?.(id);
-    },
-    [onSelectBuilding]
-  );
+  // Grid lines spanning the campus bounds.
+  const grid = useMemo(() => {
+    if (!bounds) return { horizontal: [], vertical: [] };
+    const width = bounds.maxX - bounds.minX;
+    const height = bounds.maxY - bounds.minY;
+    const step = 40;
+    const horizontal: number[] = [];
+    const vertical: number[] = [];
+    for (let y = bounds.minY; y <= bounds.maxY; y += step) horizontal.push(y);
+    for (let x = bounds.minX; x <= bounds.maxX; x += step) vertical.push(x);
+    return { horizontal, vertical, width, height };
+  }, [bounds]);
+
+  const ground = bounds ?? { minX: 0, minY: 0, maxX: 1000, maxY: 1000 };
 
   return (
     <div className="relative w-full h-full">
@@ -139,19 +171,19 @@ export function IsometricCanvas({
       >
         {/* Background */}
         <rect
-          x={-1000}
-          y={-1000}
-          width={3000}
-          height={3000}
+          x={background.x}
+          y={background.y}
+          width={background.width}
+          height={background.height}
           fill={palette.sky}
         />
 
-        {/* Ground plane */}
+        {/* Ground plane, expressed in the same projected space as the buildings */}
         <rect
-          x={-500}
-          y={0}
-          width={1200}
-          height={800}
+          x={ground.minX}
+          y={ground.minY}
+          width={ground.maxX - ground.minX}
+          height={ground.maxY - ground.minY}
           fill={palette.ground}
           stroke={palette.groundTexture}
           strokeWidth={1}
@@ -159,53 +191,53 @@ export function IsometricCanvas({
 
         {/* Grid lines for reference */}
         <g opacity={0.1}>
-          {Array.from({ length: 25 }, (_, i) => (
+          {grid.horizontal.map((y, i) => (
             <line
               key={`h-${i}`}
-              x1={-500}
-              y1={i * 40}
-              x2={700}
-              y2={i * 40}
+              x1={ground.minX}
+              y1={y}
+              x2={ground.maxX}
+              y2={y}
               stroke={palette.textLow}
               strokeWidth={0.5}
             />
           ))}
-          {Array.from({ length: 31 }, (_, i) => (
+          {grid.vertical.map((x, i) => (
             <line
               key={`v-${i}`}
-              x1={-500 + i * 40}
-              y1={0}
-              x2={-500 + i * 40}
-              y2={800}
+              x1={x}
+              y1={ground.minY}
+              x2={x}
+              y2={ground.maxY}
               stroke={palette.textLow}
               strokeWidth={0.5}
             />
           ))}
         </g>
 
-        {/* Buildings will be rendered by child components */}
+        {/* Buildings, markers and overlays share this projected viewport */}
         {children}
       </svg>
 
       {/* Camera controls */}
       <div className="absolute bottom-4 right-4 flex flex-col gap-2">
-        <Button variant="outline" size="sm" onClick={handleZoomIn}>
+        <Button variant="outline" size="sm" onClick={handleZoomIn} aria-label="Zoom in">
           <ZoomIn className="h-4 w-4" />
         </Button>
-        <Button variant="outline" size="sm" onClick={handleZoomOut}>
+        <Button variant="outline" size="sm" onClick={handleZoomOut} aria-label="Zoom out">
           <ZoomOut className="h-4 w-4" />
         </Button>
-        <Button variant="outline" size="sm" onClick={handleReset}>
+        <Button variant="outline" size="sm" onClick={handleReset} aria-label="Reset view">
           <RotateCcw className="h-4 w-4" />
         </Button>
-        <Button variant="outline" size="sm" onClick={handleFullscreen}>
+        <Button variant="outline" size="sm" onClick={handleFullscreen} aria-label="Toggle fullscreen">
           <Maximize2 className="h-4 w-4" />
         </Button>
       </div>
 
-      {/* Scale bar */}
+      {/* Scale bar: 50 world meters expressed in projected pixels */}
       <div className="absolute bottom-4 left-4 flex items-center gap-2 text-xs" style={{ color: palette.textMid }}>
-        <div className="h-px w-12" style={{ backgroundColor: palette.textMid }} />
+        <div className="h-px" style={{ width: 50 * 4, backgroundColor: palette.textMid }} />
         <span>50 m</span>
       </div>
 

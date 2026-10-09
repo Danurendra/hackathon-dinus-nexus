@@ -1,6 +1,6 @@
 """In-memory storage for conversations (will be replaced with database)"""
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime
 from src.conversations.models import Conversation, Message
 from uuid import uuid4

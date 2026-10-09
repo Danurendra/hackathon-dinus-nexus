@@ -28,7 +28,7 @@ export function EventPlanningWorkspace() {
   return (
     <div className="space-y-6">
       <div>
-        <div className="mb-3 flex flex-wrap gap-2"><Badge variant="primary">SCENARIO PLANNER</Badge><Badge variant="warning">EXAMPLE ASSUMPTIONS</Badge></div>
+        <div className="mb-3 flex flex-wrap gap-2"><Badge variant="primary">SCENARIO PLANNER</Badge><Badge variant="warning">PLANNING ASSUMPTIONS</Badge></div>
         <h1 className="text-3xl font-bold tracking-tight text-textPrimary">Event Planning & Simulation</h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-textSecondary">Uji rencana acara kampus sebelum eksekusi. Forecast ini deterministic dan menggunakan asumsi yang dapat diubah, bukan telemetry live.</p>
       </div>
@@ -62,7 +62,7 @@ export function EventPlanningWorkspace() {
 
       <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         <Card className="p-5"><div className="flex items-center justify-between"><div><h2 className="font-semibold text-textPrimary">Risk & evidence</h2><p className="mt-1 text-xs text-textSecondary">Hasil kalkulasi dari parameter skenario aktif</p></div><Badge variant={forecast.risk === 'high' ? 'error' : forecast.risk === 'medium' ? 'warning' : 'success'}>{forecast.risk.toUpperCase()} RISK</Badge></div>{forecast.risks.length ? <ul className="mt-5 space-y-3">{forecast.risks.map((risk) => <li key={risk} className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{risk}</li>)}</ul> : <div className="mt-5 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">Tidak ada constraint melewati threshold konfigurasi.</div>}<p className="mt-5 text-[11px] leading-5 text-textSecondary">Sumber: deterministic simulation engine. Nilai adalah estimasi berbasis asumsi, bukan pengukuran aktual atau jaminan keselamatan.</p></Card>
-        <Card className="p-5"><h2 className="font-semibold text-textPrimary">Recommended next steps</h2><div className="mt-4 space-y-3">{forecast.recommendations.map((recommendation, index) => <div key={recommendation} className="flex gap-3 text-sm text-textSecondary"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-50 text-xs font-semibold text-indigo-600">{index + 1}</span><span>{recommendation}</span></div>)}</div><div className="mt-5 rounded-lg bg-slate-50 p-3 text-xs text-textSecondary">Sensitive operational actions require human approval and are not executed by this prototype.</div></Card>
+        <Card className="p-5"><h2 className="font-semibold text-textPrimary">Recommended next steps</h2><div className="mt-4 space-y-3">{forecast.recommendations.map((recommendation, index) => <div key={recommendation} className="flex gap-3 text-sm text-textSecondary"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-50 text-xs font-semibold text-indigo-600">{index + 1}</span><span>{recommendation}</span></div>)}</div><div className="mt-5 rounded-lg bg-slate-50 p-3 text-xs text-textSecondary">Sensitive operational actions require human approval and are not executed automatically.</div></Card>
       </div>
     </div>
   );

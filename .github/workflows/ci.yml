@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: ["*"]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: dinusnexus
+          POSTGRES_PASSWORD: ci-local-password
+          POSTGRES_DB: dinusnexus
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dinusnexus"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql+psycopg://dinusnexus:ci-local-password@127.0.0.1:5432/dinusnexus
+      TEST_DATABASE_URL: postgresql+psycopg://dinusnexus:ci-local-password@127.0.0.1:5432/dinusnexus_test
+      DINUSNEXUS_API_KEY: ci-test-key
+      LLM_ENABLED: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Create test database
+        run: |
+          PGPASSWORD=ci-local-password psql -h 127.0.0.1 -U dinusnexus \
+            -d dinusnexus -c "CREATE DATABASE dinusnexus_test;"
+
+      - name: Compile check
+        run: python -m compileall -q src
+
+      - name: Validate dataset relations
+        run: python check_data.py
+
+      - name: Apply migrations
+        run: alembic upgrade head
+
+      - name: Run tests
+        run: pytest

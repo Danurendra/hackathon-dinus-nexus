@@ -62,7 +62,7 @@ export function CampusMap({ className = '' }: { className?: string }) {
             <MapPin className="h-5 w-5 text-primary" />
             <h2 className="text-lg font-semibold text-textPrimary">Campus Twin</h2>
             <Badge variant="info">OSM GEODATA</Badge>
-            <Badge variant="warning">SYNTHETIC OPS DATA</Badge>
+            <Badge variant="warning">CAMPUS OPERATIONS VIEW</Badge>
           </div>
           <p className="mt-1 text-sm text-textSecondary">
             Digital twin interaktif dengan geometri nyata dari OpenStreetMap
@@ -109,14 +109,14 @@ export function CampusMap({ className = '' }: { className?: string }) {
               onClick={() => setSelectedBuildingId(building.id)}
             />
           ))}
-        </IsometricCanvas>
 
-        {/* Building pins (HTML overlay) */}
-        <BuildingPins
-          colorMode={colorMode}
-          selectedBuildingId={selectedBuildingId}
-          onSelectBuilding={setSelectedBuildingId}
-        />
+          {/* Building markers and labels share the same viewport transform */}
+          <BuildingPins
+            colorMode={colorMode}
+            selectedBuildingId={selectedBuildingId}
+            onSelectBuilding={setSelectedBuildingId}
+          />
+        </IsometricCanvas>
 
         {/* Side panels */}
         <div className="absolute top-4 right-4 z-30 space-y-3">

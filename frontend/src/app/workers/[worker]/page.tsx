@@ -59,7 +59,7 @@ export default function WorkerPage({ params }: { params: { worker: string } }) {
             </h2>
             <p className="mt-2 text-sm leading-6 text-textSecondary">
               {isHelpdesk
-                ? 'Gunakan Command Center untuk membuat laporan, menjalankan investigation, dan melihat evidence sintetis.'
+                ? 'Gunakan Command Center untuk membuat laporan, menjalankan investigation, dan melihat evidence operasional.'
                 : 'Halaman ini disediakan agar navigasi tidak berakhir pada 404. Jangan gunakan data atau status pada halaman ini sebagai klaim integrasi live.'}
             </p>
           </div>

@@ -143,7 +143,7 @@ export default function HomePage() {
     context?: { worker: 'it_helpdesk'; location?: string; deviceType?: string },
   ) => {
     if (attachments.length > 0) {
-      setError('Lampiran belum terhubung ke parser backend pada prototipe ini. Kirim deskripsi teks tanpa lampiran.');
+      setError('Lampiran belum terhubung ke parser backend. Kirim deskripsi teks tanpa lampiran.');
       return;
     }
     setIsSubmitting(true);
@@ -241,12 +241,12 @@ export default function HomePage() {
         <div className="relative flex flex-col justify-between gap-5 md:flex-row md:items-center">
         <div>
           <div className="mb-3 flex items-center gap-2">
-            <Badge variant="primary">PROTOTYPE</Badge>
+            <Badge variant="primary">WORKSPACE</Badge>
             <Badge variant="info">IT Helpdesk Worker</Badge>
           </div>
           <p className="mb-1 text-xs font-semibold uppercase tracking-[0.16em] text-indigo-600">Command Center</p>
           <h1 className="text-2xl font-bold tracking-tight text-gray-900 md:text-3xl">Helpdesk operations workspace</h1>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-gray-600">Buat laporan, telusuri evidence sintetis, dan pantau hasil workflow dari satu workspace operasional.</p>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-gray-600">Buat laporan, telusuri evidence operasional, dan pantau hasil workflow dari satu workspace.</p>
         </div>
         <div className="relative flex shrink-0 flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={() => void loadHistory()} disabled={isLoading}>
@@ -288,7 +288,7 @@ export default function HomePage() {
               <Wifi className="h-5 w-5 text-cyan-600" />
             </div>
             <ChatInput onSubmit={handleCreateTask} isLoading={isSubmitting} />
-            <p className="mt-3 text-xs text-gray-500">Data perangkat dan insiden pada prototipe ini berlabel SYNTHETIC.</p>
+            <p className="mt-3 text-xs text-gray-500">Data perangkat dan insiden pada workspace ini menggunakan data ilustrasi untuk analisis awal.</p>
           </Card>
 
           <Card className="p-5">

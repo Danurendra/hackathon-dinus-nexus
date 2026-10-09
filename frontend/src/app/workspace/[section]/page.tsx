@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { EventPlanningWorkspace } from '@/components/operations/EventPlanningWorkspace';
+import { AgentWorkspace } from '@/components/agents/AgentWorkspace';
 
 const sections: Record<string, { title: string; description: string; status: 'available' | 'planned' }> = {
   operations: {
@@ -35,7 +36,7 @@ const sections: Record<string, { title: string; description: string; status: 'av
   },
   integrations: {
     title: 'Integrations',
-    description: 'The current prototype uses a clearly labeled synthetic campus dataset; live integrations are not connected.',
+    description: 'Workspace ini menggunakan data ilustrasi kampus; integrasi live belum terhubung.',
     status: 'planned',
   },
   settings: {
@@ -47,6 +48,7 @@ const sections: Record<string, { title: string; description: string; status: 'av
 
 export default function WorkspaceSectionPage({ params }: { params: { section: string } }) {
   if (params.section === 'operations') return <EventPlanningWorkspace />;
+  if (params.section === 'agents') return <AgentWorkspace />;
 
   const section = sections[params.section] ?? {
     title: 'Workspace',

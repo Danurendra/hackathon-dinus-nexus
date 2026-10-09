@@ -130,3 +130,126 @@ Kontrak API perlu memakai ID stabil dan state eksplisit. Format final endpoint/D
 - Parser per jenis file.
 - Sumber device/network data dan apakah real atau sintetis.
 - Azure services dan domain/HTTPS setup.
+
+---
+
+# Implemented Architecture — IT Helpdesk Vertical Slice
+
+> Status: **implemented and tested** (deterministic path). LLM integration is
+> `planned`. This section documents the code that actually exists in the
+> repository, in contrast to the conceptual baseline above.
+
+## Components as built
+
+| Component | File | Status | Responsibility |
+|---|---|---|---|
+| API | `src/main.py` | implemented | FastAPI app, request validation, endpoints, response serialization |
+| Auth | `src/auth.py` | implemented | `X-API-Key` dependency (`DINUSNEXUS_API_KEY`) |
+| Workflow nodes | `src/main.py` | implemented | Deterministic LangGraph state machine |
+| Data adapter | `src/data_adapter.py` | implemented | Keyword/synonym retrieval over JSON datasets |
+| Datasets | `src/data/*.json` | implemented | 59 synthetic records, labeled `SYNTHETIC` |
+| Persistence | `src/db/session.py`, `src/db/models.py` | implemented | SQLAlchemy engine, session, `Task` model |
+| Migrations | `alembic/` | implemented | Baseline migration `0001_create_tasks` |
+| LLM client | `src/llm/client.py` | implemented | OpenAI Responses API wrapper |
+| LLM analysis | `src/llm/analysis.py` | implemented (opt-in) | Bounded evidence digest + Structured Outputs |
+
+## Request flow
+
+```text
+Client (X-API-Key)
+      │
+      ▼
+FastAPI  POST /api/tasks
+      │  validate CreateTaskInput (Pydantic)
+      ▼
+PostgreSQL  INSERT task (status=queued)          ← src/db
+      │
+      ▼
+LangGraph  inspect_report → analyze_evidence → prepare_result   ← src/main.py
+      │            │                 │
+      │            │                 └── analyze_findings(...)   ← src/llm/analysis.py
+      │            │                        (bounded digest → OpenAI Structured Outputs)
+      │            └── search_helpdesk(query, zone_id, device_type)  ← src/data_adapter.py
+      │                        │
+      │                        └── src/data/*.json (synthetic)
+      ▼
+PostgreSQL  UPDATE task (status, steps, result)  ← src/db
+      │
+      ▼
+Response JSON (task + steps + facts + evidence)
+```
+
+The workflow runs **synchronously** inside the request. There is no background
+worker or queue yet; long-running execution is a future concern.
+
+## Workflow state
+
+`WorkflowState` (a `TypedDict`) carries:
+
+| Field | Set by | Used by |
+|---|---|---|
+| `task_id`, `description`, `location`, `device_type` | API (input) | `inspect_report` |
+| `status` | nodes | API |
+| `steps` | `inspect_report`, then appended by each node | API / persistence |
+| `findings` | `inspect_report` | `analyze_evidence`, `prepare_result` |
+| `analysis` | `analyze_evidence` (empty when disabled) | `prepare_result` |
+| `result` | `prepare_result` | API / persistence |
+
+Nodes:
+
+1. `inspect_report` — calls `search_helpdesk` with the request `location`
+   (`zone_id`) and `device_type`; records source IDs; sets status `running`.
+2. `analyze_evidence` — **optional**. When `LLM_ENABLED` is not true, records a
+   `skipped` step and returns an empty `analysis`. When enabled, calls
+   `analyze_findings` (bounded digest → OpenAI Structured Outputs). On provider or
+   validation failure it raises `StepFailedError` carrying a `failed` step, so the
+   task is persisted as `failed` and never as `completed`.
+3. `prepare_result` — reads `findings` (guarding against the previously observed
+   `KeyError: 'findings'`), builds `facts`, de-duplicated `evidence`,
+   `interpretation`, `uncertainty`, and `recommendations`, and sets status
+   `completed`. Every result carries `data_label: SYNTHETIC`.
+
+### Trust boundaries
+
+- `facts` and `evidence` are **always** derived from the data adapter. The LLM
+  cannot add, remove, or invent records or source IDs — it never receives an
+  instruction to emit IDs and its output is stored separately under
+  `result.analysis`.
+- The provider receives only allow-listed, truncated fields from at most 6 records
+  per dataset.
+
+## Component boundaries
+
+- **API** owns validation, authentication, and task lifecycle; it does not
+  contain retrieval or analysis logic.
+- **Data adapter** is the only source of operational records. The LLM (future)
+  must not replace or invent records; it may only interpret adapter output.
+- **Persistence** stores raw step/result/error payloads as JSON. The `Task`
+  model doubles as the run record (`run_id`) until a dedicated run/step table is
+  justified.
+- **Datasets** are read-only synthetic fixtures loaded from disk.
+
+## Error paths (implemented)
+
+| Situation | Behavior |
+|---|---|
+| Missing/invalid `X-API-Key` | `401` |
+| Server key not configured | `500` (fail closed) |
+| Invalid request body | `422` (Pydantic) |
+| Task not found | `404` |
+| Database unavailable on save/read | `503` |
+| Workflow raises | task persisted as `failed` with `error.code=WORKFLOW_FAILED`, API returns `500`; never `completed` |
+| LLM analysis fails (provider/validation) | task persisted as `failed` with `error.code=LLM_ANALYSIS_FAILED`, `analyze_evidence` step marked `failed`, API returns `500` |
+| No matching records | `completed` with empty `facts`/`evidence` — not a diagnosis |
+
+## Deliberate limitations
+
+- Retrieval is keyword + synonym matching, **not semantic search**. Words such as
+  `tidak` are not stop words and can cause incidental matches.
+- LLM analysis is **opt-in** (`LLM_ENABLED=true`) and runs synchronously in the
+  request; the default deterministic path stays free and easy to test.
+- LLM provider calls use a bounded retry policy (transient errors only, timeout
+  per request); non-transient errors fail fast as `LLM_ANALYSIS_FAILED`.
+- `Base.metadata.create_all()` still runs at API startup for developer
+  convenience. Alembic is the managed migration path; `create_all` should be
+  removed when deployment begins.

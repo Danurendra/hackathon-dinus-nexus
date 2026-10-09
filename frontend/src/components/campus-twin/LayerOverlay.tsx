@@ -1,7 +1,8 @@
 'use client';
 
 import { useMemo } from 'react';
-import { project } from '@/lib/isometric';
+import { project, type IsoPoint } from '@/lib/isometric';
+import { getBuildingAnchor } from '@/lib/spatial';
 import { campusBuildings } from '@/data/campusGeometry';
 import { getOperationalData } from '@/data/campusTwinExtended';
 import { getPalette, type ColorMode } from '@/lib/campusPalette';
@@ -14,8 +15,22 @@ interface LayerOverlayProps {
 }
 
 /**
+ * Resolve the shared anchor point (projected) for a building.
+ * Returns null when the building has no valid geometry, so callers can skip
+ * rendering a marker rather than fabricating a position.
+ */
+function getAnchorPoint(building: (typeof campusBuildings)[number]): IsoPoint | null {
+  const anchor = getBuildingAnchor(building);
+  if (!anchor) return null;
+  return project(anchor[0], anchor[1], 0);
+}
+
+/**
  * Render visualization layers on top of the isometric canvas.
  * Each layer adds visual information about different operational aspects.
+ *
+ * All markers use the same area-weighted building anchor as the building
+ * meshes and labels, so overlays stay aligned during zoom and pan.
  */
 export function LayerOverlay({ colorMode, activeLayers }: LayerOverlayProps) {
   const palette = useMemo(() => getPalette(colorMode), [colorMode]);
@@ -28,9 +43,8 @@ export function LayerOverlay({ colorMode, activeLayers }: LayerOverlayProps) {
       const opData = getOperationalData(building.id);
       if (!opData) return null;
 
-      const cx = building.footprint.reduce((s, p) => s + p[0], 0) / building.footprint.length;
-      const cy = building.footprint.reduce((s, p) => s + p[1], 0) / building.footprint.length;
-      const projected = project(cx, cy);
+      const projected = getAnchorPoint(building);
+      if (!projected) return null;
 
       const statusColors: Record<string, string> = {
         operational: palette.success,
@@ -73,9 +87,8 @@ export function LayerOverlay({ colorMode, activeLayers }: LayerOverlayProps) {
       const opData = getOperationalData(building.id);
       if (!opData) return null;
 
-      const cx = building.footprint.reduce((s, p) => s + p[0], 0) / building.footprint.length;
-      const cy = building.footprint.reduce((s, p) => s + p[1], 0) / building.footprint.length;
-      const projected = project(cx, cy);
+      const projected = getAnchorPoint(building);
+      if (!projected) return null;
 
       // Simulate density based on capacity and time of day
       const density = opData.dailyCapacity !== null && opData.eventCapacity !== null && opData.eventCapacity > 0
@@ -104,7 +117,7 @@ export function LayerOverlay({ colorMode, activeLayers }: LayerOverlayProps) {
     if (!activeLayers.has('flow')) return null;
 
     const rand = keyedRandom('flow');
-    const flows: Array<{ from: [number, number]; to: [number, number]; intensity: number }> = [];
+    const flows: Array<{ from: IsoPoint; to: IsoPoint; intensity: number }> = [];
 
     // Generate flows between buildings
     for (let i = 0; i < campusBuildings.length; i++) {
@@ -112,49 +125,46 @@ export function LayerOverlay({ colorMode, activeLayers }: LayerOverlayProps) {
         const b1 = campusBuildings[i];
         const b2 = campusBuildings[j];
 
-        const cx1 = b1.footprint.reduce((s, p) => s + p[0], 0) / b1.footprint.length;
-        const cy1 = b1.footprint.reduce((s, p) => s + p[1], 0) / b1.footprint.length;
-        const cx2 = b2.footprint.reduce((s, p) => s + p[0], 0) / b2.footprint.length;
-        const cy2 = b2.footprint.reduce((s, p) => s + p[1], 0) / b2.footprint.length;
+        const a1 = getBuildingAnchor(b1);
+        const a2 = getBuildingAnchor(b2);
+        if (!a1 || !a2) continue;
+
+        const from = project(a1[0], a1[1], 0);
+        const to = project(a2[0], a2[1], 0);
 
         // Distance-based intensity
-        const dist = Math.sqrt((cx2 - cx1) ** 2 + (cy2 - cy1) ** 2);
+        const dist = Math.sqrt((a2[0] - a1[0]) ** 2 + (a2[1] - a1[1]) ** 2);
         const intensity = Math.max(0.2, 1 - dist / 200);
 
         if (rand() > 0.3) {
-          flows.push({ from: [cx1, cy1], to: [cx2, cy2], intensity });
+          flows.push({ from, to, intensity });
         }
       }
     }
 
-    return flows.map((flow, idx) => {
-      const from = project(flow.from[0], flow.from[1]);
-      const to = project(flow.to[0], flow.to[1]);
-
-      return (
-        <g key={`flow-${idx}`}>
-          <line
-            x1={from.x}
-            y1={from.y}
-            x2={to.x}
-            y2={to.y}
-            stroke={palette.accent}
-            strokeWidth={1 + flow.intensity * 2}
-            opacity={0.4}
-            strokeDasharray="4 4"
-          >
-            <animate
-              attributeName="stroke-dashoffset"
-              values="0;-8"
-              dur={`${2 - flow.intensity}s`}
-              repeatCount="indefinite"
-            />
-          </line>
-          {/* Arrow head */}
-          <circle cx={to.x} cy={to.y} r={2} fill={palette.accent} opacity={0.6} />
-        </g>
-      );
-    });
+    return flows.map((flow, idx) => (
+      <g key={`flow-${idx}`}>
+        <line
+          x1={flow.from.x}
+          y1={flow.from.y}
+          x2={flow.to.x}
+          y2={flow.to.y}
+          stroke={palette.accent}
+          strokeWidth={1 + flow.intensity * 2}
+          opacity={0.4}
+          strokeDasharray="4 4"
+        >
+          <animate
+            attributeName="stroke-dashoffset"
+            values="0;-8"
+            dur={`${2 - flow.intensity}s`}
+            repeatCount="indefinite"
+          />
+        </line>
+        {/* Arrow head */}
+        <circle cx={flow.to.x} cy={flow.to.y} r={2} fill={palette.accent} opacity={0.6} />
+      </g>
+    ));
   }, [activeLayers, colorMode]);
 
   // Energy layer: power consumption indicators
@@ -165,9 +175,8 @@ export function LayerOverlay({ colorMode, activeLayers }: LayerOverlayProps) {
       const opData = getOperationalData(building.id);
       if (!opData) return null;
 
-      const cx = building.footprint.reduce((s, p) => s + p[0], 0) / building.footprint.length;
-      const cy = building.footprint.reduce((s, p) => s + p[1], 0) / building.footprint.length;
-      const projected = project(cx, cy);
+      const projected = getAnchorPoint(building);
+      if (!projected) return null;
 
       // Normalize energy to 0-1 range (max ~100kW)
       const normalized = Math.min(1, opData.baseEnergyKw / 100);
@@ -217,9 +226,8 @@ export function LayerOverlay({ colorMode, activeLayers }: LayerOverlayProps) {
         const opData = getOperationalData(building.id);
         if (!opData || opData.activeIncidents === 0) return null;
 
-        const cx = building.footprint.reduce((s, p) => s + p[0], 0) / building.footprint.length;
-        const cy = building.footprint.reduce((s, p) => s + p[1], 0) / building.footprint.length;
-        const projected = project(cx, cy);
+        const projected = getAnchorPoint(building);
+        if (!projected) return null;
 
         return (
           <g key={`incident-${building.id}`}>
@@ -255,9 +263,8 @@ export function LayerOverlay({ colorMode, activeLayers }: LayerOverlayProps) {
         const opData = getOperationalData(building.id);
         if (!opData || opData.securityIncidents === 0) return null;
 
-        const cx = building.footprint.reduce((s, p) => s + p[0], 0) / building.footprint.length;
-        const cy = building.footprint.reduce((s, p) => s + p[1], 0) / building.footprint.length;
-        const projected = project(cx, cy);
+        const projected = getAnchorPoint(building);
+        if (!projected) return null;
 
         return (
           <g key={`security-${building.id}`}>
