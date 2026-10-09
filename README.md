@@ -12,6 +12,8 @@
 | PostgreSQL persistence + Alembic migration | implemented, tested |
 | API key authentication (`X-API-Key`) | implemented, tested |
 | CORS untuk frontend + token metrics | implemented, tested |
+| Approval gate (`waiting_for_approval` + approve/reject) | implemented, tested |
+| Normalisasi `task_runs`/`execution_steps` | implemented, tested |
 | CI (GitHub Actions: compile, data check, migrasi, pytest) | implemented (workflow) |
 | Input validation & error handling | implemented, tested |
 | LLM `analyze_evidence` (opsional, `LLM_ENABLED=true`) | implemented, tested (mock) + diverifikasi live 1x |
@@ -24,20 +26,27 @@ Detail verifikasi ada di [`docs/TESTING.md`](docs/TESTING.md) dan [`docs/DEVELOP
 
 1. Client mengirim laporan ke `POST /api/tasks` (dengan `X-API-Key`).
 2. Backend memvalidasi input dan menyimpan task (`queued`) ke PostgreSQL.
-3. LangGraph menjalankan `inspect_report → prepare_result` secara deterministik.
+3. LangGraph menjalankan `inspect_report → analyze_evidence → prepare_result`
+   secara deterministik (langkah LLM opsional).
 4. Data adapter mencari perangkat, insiden, zona, dan gedung yang relevan dari
    dataset sintetis (dengan filter zona dan tipe perangkat).
 5. Hasil memuat `facts` (record asli), `evidence` (source id + dataset),
    `interpretation`, `uncertainty`, dan `recommendations`, semuanya berlabel
    `SYNTHETIC`.
-6. Task, steps, dan hasil tersimpan persisten; history bertahan setelah restart.
+6. Task, steps, dan hasil tersimpan persisten (tabel `tasks` + `task_runs` +
+   `execution_steps`); history bertahan setelah restart.
+7. Bila `requested_action` termasuk aksi sensitif, workflow berhenti di
+   `waiting_for_approval` dan menunggu keputusan manusia via
+   `POST /api/tasks/{task_id}/approval`. Backend **tidak** mengeksekusi aksi
+   sensitif secara otomatis.
 
 ## Arsitektur singkat
 
 ```text
-FastAPI (src/main.py) → LangGraph (inspect_report, prepare_result)
+FastAPI (src/main.py) → LangGraph (inspect_report, analyze_evidence,
+      prepare_result, request_approval)
       → data adapter (src/data_adapter.py) → JSON datasets (src/data/)
-      → PostgreSQL (src/db/) → response + history
+      → PostgreSQL (src/db/: tasks, task_runs, execution_steps) → response + history
 ```
 
 Lihat [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) (bagian "Implemented Architecture") dan [`docs/API.md`](docs/API.md).
@@ -45,8 +54,8 @@ Lihat [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) (bagian "Implemented Archit
 ## Stack
 
 Python 3.12 · FastAPI · LangGraph · PostgreSQL 16 · SQLAlchemy 2.x · Alembic ·
-Pydantic · pytest + httpx · Docker. OpenAI SDK terpasang untuk fitur LLM yang
-akan datang (belum dipakai workflow).
+Pydantic · pytest + httpx · Docker. OpenAI SDK dipakai untuk langkah LLM
+opsional (`analyze_evidence`).
 
 ## Prasyarat
 
@@ -117,6 +126,8 @@ Nilai asli tidak boleh masuk source code, dokumentasi, log, atau Git.
 | GET | `/health` | publik | liveness |
 | POST | `/api/tasks` | `X-API-Key` | buat task + jalankan workflow |
 | GET | `/api/tasks/{task_id}` | `X-API-Key` | baca task |
+| GET | `/api/tasks/{task_id}/runs` | `X-API-Key` | run & step ternormalisasi |
+| POST | `/api/tasks/{task_id}/approval` | `X-API-Key` | approve/reject (`waiting_for_approval`) |
 | GET | `/api/history` | `X-API-Key` | daftar task (terbaru dulu) |
 | GET | `/api/metrics/tokens` | `X-API-Key` | agregat penggunaan token LLM |
 
@@ -133,7 +144,7 @@ pytest
 ```
 
 Test berjalan terhadap database terpisah (`<db>_test`), tidak menyentuh data
-demo. Hasil terakhir: **29 passed**. Skenario dan fixture: [`docs/TESTING.md`](docs/TESTING.md).
+demo. Hasil terakhir: **62 passed, 1 skipped**. Skenario dan fixture: [`docs/TESTING.md`](docs/TESTING.md).
 
 ## Known limitations
 
@@ -141,17 +152,21 @@ demo. Hasil terakhir: **29 passed**. Skenario dan fixture: [`docs/TESTING.md`](d
 - **Keyword search, bukan semantic search**: pencarian berbasis kata kunci +
   sinonim. Kata seperti `tidak` belum menjadi stop word sehingga bisa muncul
   kecocokan insidental.
-- **Sinkron, tanpa background worker**: workflow berjalan di dalam request.
+- **Sinkron, tanpa background worker**: workflow berjalan di dalam request dan
+  belum ada eksekusi asinkron/queue.
+- **Approval gate, bukan eksekusi aksi**: keputusan `approve` menandai task
+  `completed` dan mencatat otorisasi manusia, tetapi backend tidak menjalankan
+  aksi sensitif apa pun. Ini disengaja (human-in-the-loop).
 - **LLM opsional**: default deterministik. Langkah `analyze_evidence` hanya jalan
   bila `LLM_ENABLED=true`; kegagalan LLM membuat task `failed` (tidak pernah
   `completed`). Fakta/evidence tetap berasal dari dataset, bukan dari model.
 - **Retry terbatas**: error provider transien (rate limit, timeout, 5xx) di-retry
   dengan exponential backoff + jitter, dibatasi `LLM_MAX_ATTEMPTS`. Error
   non-transien (mis. 400/401) dan output tidak valid tidak di-retry.
-- **Run/step belum ternormalisasi**: steps disimpan sebagai JSON di tabel
-  `tasks`; belum ada tabel `task_runs`/`execution_steps` terpisah.
+- **Steps JSON tetap dipertahankan**: respons task masih memuat `steps` (JSON)
+  untuk kompatibilitas; `task_runs`/`execution_steps` adalah store terkueri.
 - **`create_all` saat startup**: masih dipakai untuk kenyamanan dev; Alembic
-  adalah jalur migrasi resmi.
+  adalah jalur migrasi resmi. Jalankan `alembic upgrade head`.
 
 ## Campus roles (target)
 

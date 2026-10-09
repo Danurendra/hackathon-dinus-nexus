@@ -47,6 +47,7 @@ Create a task, persist it, run the helpdesk workflow, and return the final task.
 | `description` | string | yes | 5–2000 chars | — |
 | `location` | string | no | zone id, e.g. `zone-A1` | `null` |
 | `device_type` | string | no | e.g. `access_point`, `gateway` | `null` |
+| `requested_action` | string | no | ≤100 chars; sensitive values (`reset_account`, `restart_device`, `change_config`, `network_change`) trigger the approval gate | `null` |
 
 ```bash
 curl -s -X POST http://127.0.0.1:8000/api/tasks \
@@ -86,6 +87,75 @@ Read a single persisted task.
 
 - **200** — task object.
 - **404** — `{ "detail": "Task not found" }`
+- **503** — database unavailable.
+
+### `GET /api/tasks/{task_id}/runs`
+
+Read the normalized execution record(s) for a task. Each run lists its ordered
+steps from the `task_runs` / `execution_steps` tables.
+
+**Headers:** `X-API-Key` (required)
+
+**200**
+```json
+{
+  "items": [
+    {
+      "run_id": "…",
+      "task_id": "…",
+      "worker": "it_helpdesk",
+      "status": "completed",
+      "created_at": "…",
+      "finished_at": "…",
+      "steps": [
+        {
+          "step_id": "inspect_report",
+          "order": 1,
+          "name": "Search synthetic helpdesk data",
+          "status": "completed",
+          "source_ids": ["device-AP-A1-01"],
+          "detail": null,
+          "error": null,
+          "model": null,
+          "usage": null
+        }
+      ]
+    }
+  ]
+}
+```
+
+- **404** — task not found.
+- **503** — database unavailable.
+
+### `POST /api/tasks/{task_id}/approval`
+
+Record a human approve/reject decision for a task in `waiting_for_approval`.
+The backend **does not execute the sensitive action**; it only stores the
+authorization decision (human-in-the-loop).
+
+**Headers:** `X-API-Key` (required)
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|---|---|---|---|
+| `decision` | string | yes | `approve` or `reject` |
+| `note` | string | no | ≤500 chars |
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/api/tasks/$TASK_ID/approval \
+  -H "X-API-Key: $DINUSNEXUS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "decision": "approve", "note": "Disetujui oleh leader shift." }'
+```
+
+- `approve` → task `status: "completed"`, `approval.status: "approved"`.
+- `reject` → task `status: "cancelled"`, `approval.status: "rejected"`.
+- **200** — updated task object.
+- **404** — task not found.
+- **409** — task is not waiting for approval.
+- **422** — invalid `decision`.
 - **503** — database unavailable.
 
 ### `GET /api/history`
@@ -144,6 +214,7 @@ origins. Add your frontend origin to `CORS_ORIGINS` in `.env` before deploying.
   "description": "Wi-Fi di Laboratorium Komputer 1 mengalami gangguan koneksi.",
   "location": "zone-A1",
   "device_type": "access_point",
+  "requested_action": null,
   "status": "completed",
   "created_at": "2026-10-09T11:27:25.699147+00:00",
   "steps": [
@@ -188,6 +259,7 @@ origins. Add your frontend origin to `CORS_ORIGINS` in `.env` before deploying.
     "data_label": "SYNTHETIC"
   },
   "error": null,
+  "approval": null,
   "llm_model": "gpt-4o-mini",
   "input_tokens": 612,
   "output_tokens": 181
@@ -198,6 +270,11 @@ origins. Add your frontend origin to `CORS_ORIGINS` in `.env` before deploying.
 
 - `steps` — execution timeline. Every step carries an explicit `status`. The
   `analyze_evidence` step is `skipped` when `LLM_ENABLED` is not `true`.
+- `requested_action` — normalized (lower-cased) action requested by the client;
+  `null` when none. Sensitive values trigger the approval gate.
+- `approval` — `null` unless the task required approval. When set, it contains
+  `required`, `status` (`pending`/`approved`/`rejected`), `action`, `decision`,
+  `note`, and `decided_at`.
 - `llm_model` / `input_tokens` / `output_tokens` — per-task LLM usage; `null`
   when the LLM step did not run or usage was unavailable.
 - `result.facts` — original dataset records. `result.evidence` — `source_id` +
@@ -214,7 +291,8 @@ origins. Add your frontend origin to `CORS_ORIGINS` in `.env` before deploying.
 ## LLM analysis (optional)
 
 When `LLM_ENABLED=true`, the workflow runs `inspect_report → analyze_evidence →
-prepare_result`. The model:
+prepare_result` (then `request_approval` when a sensitive action is requested).
+The model:
 
 - receives only a bounded digest of already-retrieved records (max 6 per dataset,
   allow-listed fields, truncated), never the whole dataset;
@@ -248,9 +326,12 @@ The provider call uses a bounded retry policy:
 
 ## Status values
 
-Implemented: `queued`, `running`, `completed`, `failed`.
-Reserved for future work: `waiting_for_approval`, `cancelled`
-(see `docs/WORKFLOWS.md`).
+Implemented: `queued`, `running`, `waiting_for_approval`, `completed`, `failed`,
+`cancelled`.
+
+- `waiting_for_approval` — a sensitive `requested_action` paused the workflow;
+  resolve it via `POST /api/tasks/{task_id}/approval`.
+- `cancelled` — the approval decision was `reject`.
 
 ## Endpoint implementation status
 
@@ -259,6 +340,8 @@ Reserved for future work: `waiting_for_approval`, `cancelled`
 | `GET /health` | yes | yes | public |
 | `POST /api/tasks` | yes | yes | auth + validation + persistence |
 | `GET /api/tasks/{id}` | yes | yes | reads from PostgreSQL |
+| `GET /api/tasks/{id}/runs` | yes | yes | normalized run/steps |
+| `POST /api/tasks/{id}/approval` | yes | yes | human-in-the-loop gate |
 | `GET /api/history` | yes | yes | reads from PostgreSQL |
 | `GET /api/metrics/tokens` | yes | yes | aggregates persisted LLM usage |
 | LLM-backed analysis | yes | yes (mock) + live 1x | optional via `LLM_ENABLED=true` (`analyze_evidence`) |

@@ -6,6 +6,62 @@ recorded run.
 
 ---
 
+## 2026-10-09 — Approval gate and normalized run/step persistence
+
+**Goal.** Add a real human-in-the-loop gate for sensitive requests and normalize
+the execution record into queryable tables, without breaking the existing task
+response contract.
+
+### Changes
+
+| Area | Files | Notes |
+|---|---|---|
+| Approval gate | `src/main.py` | `SENSITIVE_ACTIONS`, `request_approval` node, `route_after_prepare` |
+| Normalization | `src/db/models.py` | `TaskRun`, `ExecutionStep`; `persist_run()` helper |
+| Schema | `alembic/versions/0003_runs_steps_approval.py` | `tasks.requested_action`/`approval`, `task_runs`, `execution_steps` |
+| API | `src/main.py` | `POST /api/tasks/{id}/approval`, `GET /api/tasks/{id}/runs` |
+| Tests | `tests/test_approval.py`, `tests/conftest.py` | approval flow, runs, normalization; truncate all task tables |
+| Docs | `README.md`, `docs/API.md`, `docs/DATABASE.md`, `docs/TESTING.md` | states, endpoints, tables |
+
+### Notes
+
+- A sensitive `requested_action` (`reset_account`, `restart_device`,
+  `change_config`, `network_change`) routes to `request_approval`; the task is
+  stored as `waiting_for_approval`. This is human-in-the-loop by design: the
+  backend records the authorization decision but does **not** execute the action.
+- `approve` → `completed`; `reject` → `cancelled`. Deciding on a task that is not
+  waiting returns `409`.
+- The normalized `task_runs`/`execution_steps` tables are written in the same
+  transaction as the task update. `tasks.steps` (JSON) is kept so the response
+  contract is unchanged.
+- Migration `0003` is additive. During setup, `create_all` at startup had already
+  created the two new tables before Alembic ran, causing `DuplicateTable`; the
+  empty orphan tables were dropped and `alembic upgrade head` recreated them
+  cleanly. No data was lost (dev tables were empty).
+
+### Commands and actual results
+
+```text
+python -m compileall -q src alembic   -> exit 0
+alembic upgrade head                  -> 0002 -> 0003 (dev + test)
+alembic check                         -> No new upgrade operations detected.
+pytest                                -> 62 passed, 1 skipped in 7.10s
+```
+
+### Open issues
+
+- No background/async execution; the gate is synchronous and in-request.
+- Approval records authorization only; action execution is intentionally absent.
+- `create_all` at startup can still race with Alembic (see docs/DATABASE.md).
+
+### Next steps
+
+1. Background execution/queue so `waiting_for_approval` tasks can be resumed.
+2. Rate limit / RBAC beyond the single API key.
+3. Frontend wiring for `/api/tasks/{id}`, `/runs`, `/approval`, `/metrics/tokens`.
+
+---
+
 ## 2026-10-09 — Frontend integration (CORS), token metrics, and CI
 
 **Goal.** Remove the biggest remaining blockers to a demo-ready backend: allow

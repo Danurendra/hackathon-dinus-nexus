@@ -44,7 +44,7 @@ src/auth.py            # X-API-Key dependency
 src/data_adapter.py    # retrieval keyword/synonym atas dataset JSON
 src/data/*.json        # dataset sintetis (buildings, zones, devices, incidents)
 src/db/session.py      # SQLAlchemy engine/SessionLocal/Base
-src/db/models.py       # model Task
+src/db/models.py       # model Task, TaskRun, ExecutionStep
 src/llm/client.py      # wrapper OpenAI Responses API
 src/llm/analysis.py    # node LLM opsional (bounded digest + Structured Outputs)
 alembic/               # konfigurasi + migrasi skema

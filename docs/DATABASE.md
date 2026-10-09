@@ -44,20 +44,54 @@ documentation, logs, or issues.
 | `description` | text | no | user report |
 | `location` | varchar(255) | yes | zone id |
 | `device_type` | varchar(100) | yes | requested device type |
-| `status` | varchar(40) | no | `queued` / `running` / `completed` / `failed` |
+| `requested_action` | varchar(100) | yes | normalized action; sensitive values gate on approval |
+| `status` | varchar(40) | no | `queued` / `running` / `waiting_for_approval` / `completed` / `failed` / `cancelled` |
 | `created_at` | timestamptz | no | UTC |
-| `steps` | json | no | execution timeline (JSON array) |
+| `steps` | json | no | execution timeline (JSON array, kept for the API contract) |
 | `result` | json | yes | facts / evidence / interpretation / … |
 | `error` | json | yes | `{code, message}` on failure |
+| `approval` | json | yes | `{required, status, action, decision, note, decided_at}` |
 | `llm_model` | varchar(100) | yes | model id when the LLM step ran |
 | `input_tokens` | integer | yes | provider input tokens |
 | `output_tokens` | integer | yes | provider output tokens |
 
-`steps`, `result`, and `error` are stored as JSON because their shape is
-workflow-owned and still evolving. The `llm_model`/token columns are extracted
+`steps`, `result`, `error`, and `approval` are stored as JSON because their shape
+is workflow-owned and still evolving. The `llm_model`/token columns are extracted
 from `result.analysis.usage` at task completion so the token metrics endpoint can
-aggregate with SQL. A dedicated `task_runs` / `execution_steps` table is a planned
-normalization step, not yet required for the vertical slice.
+aggregate with SQL. `steps` remains in the response for backward compatibility;
+the queryable store is normalized into `task_runs` / `execution_steps` below.
+
+### `task_runs` (`TaskRun`)
+
+One row per workflow run. Today a task has exactly one run, but the table is
+keyed independently (`run_id`) so retries/reruns can be added later.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| `run_id` | varchar(36) | no | primary key |
+| `task_id` | varchar(36) | no | FK → `tasks.task_id` (ON DELETE CASCADE), indexed |
+| `worker` | varchar(100) | no | e.g. `it_helpdesk` |
+| `status` | varchar(40) | no | final run status |
+| `created_at` | timestamptz | no | UTC |
+| `finished_at` | timestamptz | yes | set on finalization |
+
+### `execution_steps` (`ExecutionStep`)
+
+Ordered steps belonging to a run.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| `id` | varchar(36) | no | primary key |
+| `run_id` | varchar(36) | no | FK → `task_runs.run_id` (ON DELETE CASCADE), indexed |
+| `order_index` | integer | no | 1-based sequence |
+| `step_key` | varchar(64) | yes | workflow step id, e.g. `inspect_report` |
+| `name` | varchar(255) | no | human-readable label |
+| `status` | varchar(40) | no | `completed` / `skipped` / `failed` / `waiting_for_approval` |
+| `source_ids` | json | yes | dataset source ids attached to the step |
+| `detail` | text | yes | short explanation |
+| `error` | json | yes | `{code, message}` for a failed step |
+| `model` | varchar(100) | yes | LLM model for the step |
+| `usage` | json | yes | token usage for the step |
 
 ## Migrations
 
@@ -100,13 +134,26 @@ Migration `0002_add_token_usage` adds the nullable LLM usage columns
 `GET /api/metrics/tokens`. Because the columns are nullable, the deterministic
 (no-LLM) path is unaffected.
 
+Migration `0003_runs_steps_approval` adds `requested_action` and `approval` to
+`tasks` and creates the normalized `task_runs` and `execution_steps` tables. All
+additions are nullable/new tables, so existing data is preserved.
+
+> Operationally: if `create_all` at app startup has already created the new
+> tables before `alembic upgrade head` runs, Alembic will fail with
+> `DuplicateTable`. Prefer running `alembic upgrade head` before starting the API,
+> or drop the empty orphan tables and re-run the migration.
+
 ## Transactions and persistence policy
 
 - A task row is inserted (`status=queued`) **before** the workflow runs, so every
   submitted task is recorded even if the workflow later fails.
-- On success the row is updated with final `status`, `steps`, and `result`.
-- On failure the row is updated to `status=failed` with a safe `error` payload.
-  A failed workflow must never be stored as `completed`.
+- On success the row is updated with final `status`, `steps`, and `result`; the
+  normalized `task_runs` row and `execution_steps` are written in the same
+  transaction.
+- On failure the row is updated to `status=failed` with a safe `error` payload
+  and a failed run. A failed workflow must never be stored as `completed`.
+- An approval decision updates `tasks.approval`/`status`, appends an `approval`
+  step, and re-syncs the normalized run/steps.
 - Each request uses a short-lived `SessionLocal()` session.
 
 ## Inspecting schema safely
@@ -126,8 +173,9 @@ password, but never run commands that select credential columns.
 
 The automated suite runs against a separate database whose name is
 `DATABASE_URL`'s database with a `_test` suffix (override with
-`TEST_DATABASE_URL`). It is created/dropped by the test fixtures and never
-touches developer or demo data.
+`TEST_DATABASE_URL`). It never touches developer or demo data. The fixtures
+create the schema if needed and truncate the task tables before each test; the
+schema is left in place so it stays consistent with the Alembic revision state.
 
 ```bash
 docker exec dinusnexus-postgres psql -U dinusnexus -d dinusnexus \

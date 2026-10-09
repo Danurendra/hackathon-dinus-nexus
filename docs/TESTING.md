@@ -1,6 +1,6 @@
 # Testing — DinusNexus Backend
 
-> Status: **implemented and passing**. Last run: 2026-10-09, **49 passed, 1 skipped**.
+> Status: **implemented and passing**. Last run: 2026-10-09, **62 passed, 1 skipped**.
 
 ## Prerequisites
 
@@ -43,8 +43,8 @@ Defined in `tests/conftest.py`:
 
 | Fixture | Scope | Purpose |
 |---|---|---|
-| `_schema` | session | `create_all` on the test DB before, `drop_all` after |
-| `_clean_tasks` | function (autouse) | truncates `tasks` before each test for isolation |
+| `_schema` | session | `create_all` on the test DB (schema left in place to stay consistent with Alembic) |
+| `_clean_tasks` | function (autouse) | truncates `execution_steps`, `task_runs`, `tasks` before each test |
 | `client` | function | `fastapi.testclient.TestClient` around `src.main:app` |
 | `api_key` | function | fixed test key (`test-api-key`) |
 
@@ -99,6 +99,18 @@ Environment setup in `conftest.py` runs before importing `src.*`, pointing
   `analyze_evidence` step.
 - Token usage is persisted to columns and aggregated by `/api/metrics/tokens`.
 
+### `tests/test_approval.py` (13)
+- Sensitive `requested_action` → `waiting_for_approval` with a pending approval
+  block and `request_approval` step.
+- Non-sensitive action completes normally.
+- `approve` → `completed` with recorded decision; `reject` → `cancelled`.
+- Approval on a task that is not waiting → `409`; unknown task → `404`.
+- Approval requires the API key (`401`) and rejects an invalid decision (`422`).
+- Normalized `task_runs`/`execution_steps` are persisted with ordered steps.
+- `GET /api/tasks/{id}/runs` returns the normalized run/steps; unknown → `404`,
+  missing key → `401`.
+- Failed workflow is normalized as a failed run.
+
 ### `tests/test_llm_analysis.py` (14 + 1 live)
 - Evidence digest is bounded (max records per dataset) and field-filtered
   (allow-list; e.g. `macAddress` never sent).
@@ -116,7 +128,7 @@ Environment setup in `conftest.py` runs before importing `src.*`, pointing
 
 ```
 $ pytest
-49 passed, 1 skipped in 3.96s
+62 passed, 1 skipped in 7.10s
 ```
 
 ## Continuous integration
@@ -175,5 +187,5 @@ RUN_LIVE_LLM=1 LLM_ENABLED=true pytest -m live_llm -q
 
 - Alembic upgrade is verified manually (`docs/DEVELOPMENT_LOG.md`) but has no
   automated test.
-- `waiting_for_approval` / `cancelled` states are not implemented.
 - Retry backoff timing is not asserted (sleep is patched out in tests).
+- No background/async execution path exists yet, so queue behavior is untested.
