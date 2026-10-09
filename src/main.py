@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from typing import Literal, TypedDict
 from uuid import uuid4
+from src.data_adapter import search_helpdesk
 
 from fastapi import FastAPI, HTTPException
 from langgraph.graph import END, START, StateGraph
@@ -26,49 +27,85 @@ class WorkflowState(TypedDict):
     description: str
     status: str
     steps: list[dict]
+    findings: dict
     result: dict
 
 
 def inspect_report(state: WorkflowState) -> dict:
+    findings = search_helpdesk(state["description"])
+
+    source_ids = [
+        item["id"]
+        for records in findings["matches"].values()
+        for item in records
+        if "id" in item
+    ]
+
     return {
         "status": "running",
+        "findings": findings,
         "steps": [
             {
                 "step_id": "inspect_report",
-                "name": "Inspect incident report",
+                "name": "Search synthetic helpdesk data",
                 "status": "completed",
-                "source_ids": [],
+                "source_ids": source_ids,
             }
         ],
     }
 
 
+
 def prepare_result(state: WorkflowState) -> dict:
+    findings = state["findings"]
+
+    facts = [
+        {
+            "dataset": dataset_name,
+            "record": record,
+        }
+        for dataset_name, records in findings["matches"].items()
+        for record in records
+    ]
+
+    evidence = [
+        {
+            "source_id": record["id"],
+            "dataset": dataset_name,
+        }
+        for dataset_name, records in findings["matches"].items()
+        for record in records
+        if "id" in record
+    ]
+
     return {
         "status": "completed",
         "steps": state["steps"] + [
             {
                 "step_id": "prepare_result",
-                "name": "Prepare initial result",
+                "name": "Prepare result from synthetic data",
                 "status": "completed",
-                "source_ids": [],
+                "source_ids": [
+                    item["source_id"] for item in evidence
+                ],
             }
         ],
         "result": {
-            "facts": [],
+            "facts": facts,
             "interpretation": [
-                "The incident report was received and recorded."
+                f"Found {len(facts)} matching records in synthetic datasets."
             ],
             "uncertainty": [
-                "No device lookup or external data source has been connected."
+                "These records are synthetic and do not represent verified live campus conditions."
             ],
             "recommendations": [
-                "Connect an approved helpdesk data tool before diagnosing the incident."
+                "Verify the relevant device and incident details before taking action."
             ],
-            "evidence": [],
-            "data_label": "PROTOTYPE",
+            "evidence": evidence,
+            "data_label": "SYNTHETIC",
         },
     }
+
 
 
 workflow = StateGraph(WorkflowState)
