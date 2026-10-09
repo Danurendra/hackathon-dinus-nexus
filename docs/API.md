@@ -1,0 +1,347 @@
+# API Reference — DinusNexus Backend
+
+> Status: **implemented and tested** for the IT Helpdesk deterministic flow.
+> Base URL in local development: `http://127.0.0.1:8000`.
+> Interactive schema: `http://127.0.0.1:8000/docs` (Swagger UI) and
+> `/openapi.json`.
+
+## Authentication
+
+Protected endpoints require a backend API key sent in the `X-API-Key` header.
+The value is read from the `DINUSNEXUS_API_KEY` environment variable.
+
+- Missing or wrong key → `401`.
+- Server key not configured → `500` (the API fails closed rather than exposing
+  endpoints).
+
+`GET /health` is public.
+
+```bash
+# The key is read from your local .env; never commit or paste it into docs.
+curl -s http://127.0.0.1:8000/api/history \
+  -H "X-API-Key: $DINUSNEXUS_API_KEY"
+```
+
+## Endpoints
+
+### `GET /health`
+
+Public liveness probe.
+
+**200**
+```json
+{ "status": "ok", "service": "dinusnexus-api" }
+```
+
+### `POST /api/tasks`
+
+Create a task, persist it, run the helpdesk workflow, and return the final task.
+
+**Headers:** `X-API-Key` (required), `Content-Type: application/json`
+
+**Request body**
+
+| Field | Type | Required | Constraints | Default |
+|---|---|---|---|---|
+| `worker` | string | no | must be `it_helpdesk` | `it_helpdesk` |
+| `description` | string | yes | 5–2000 chars | — |
+| `location` | string | no | zone id, e.g. `zone-A1` | `null` |
+| `device_type` | string | no | e.g. `access_point`, `gateway` | `null` |
+| `requested_action` | string | no | ≤100 chars; sensitive values (`reset_account`, `restart_device`, `change_config`, `network_change`) trigger the approval gate | `null` |
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/api/tasks \
+  -H "X-API-Key: $DINUSNEXUS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "description": "Wi-Fi di Laboratorium Komputer 1 mengalami gangguan koneksi.",
+    "location": "zone-A1",
+    "device_type": "access_point"
+  }'
+```
+
+**201** — the serialized task (see [Task object](#task-object)).
+
+**422** — validation error (Pydantic), for example a description shorter than 5
+characters or an unknown worker.
+
+**503** — database unavailable; the task could not be saved.
+
+**500** — workflow failure. The task is still persisted with `status: "failed"`:
+
+```json
+{
+  "detail": {
+    "task_id": "…",
+    "run_id": "…",
+    "error": { "code": "WORKFLOW_FAILED", "message": "The workflow could not complete." }
+  }
+}
+```
+
+### `GET /api/tasks/{task_id}`
+
+Read a single persisted task.
+
+**Headers:** `X-API-Key` (required)
+
+- **200** — task object.
+- **404** — `{ "detail": "Task not found" }`
+- **503** — database unavailable.
+
+### `GET /api/tasks/{task_id}/runs`
+
+Read the normalized execution record(s) for a task. Each run lists its ordered
+steps from the `task_runs` / `execution_steps` tables.
+
+**Headers:** `X-API-Key` (required)
+
+**200**
+```json
+{
+  "items": [
+    {
+      "run_id": "…",
+      "task_id": "…",
+      "worker": "it_helpdesk",
+      "status": "completed",
+      "created_at": "…",
+      "finished_at": "…",
+      "steps": [
+        {
+          "step_id": "inspect_report",
+          "order": 1,
+          "name": "Search synthetic helpdesk data",
+          "status": "completed",
+          "source_ids": ["device-AP-A1-01"],
+          "detail": null,
+          "error": null,
+          "model": null,
+          "usage": null
+        }
+      ]
+    }
+  ]
+}
+```
+
+- **404** — task not found.
+- **503** — database unavailable.
+
+### `POST /api/tasks/{task_id}/approval`
+
+Record a human approve/reject decision for a task in `waiting_for_approval`.
+The backend **does not execute the sensitive action**; it only stores the
+authorization decision (human-in-the-loop).
+
+**Headers:** `X-API-Key` (required)
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|---|---|---|---|
+| `decision` | string | yes | `approve` or `reject` |
+| `note` | string | no | ≤500 chars |
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/api/tasks/$TASK_ID/approval \
+  -H "X-API-Key: $DINUSNEXUS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "decision": "approve", "note": "Disetujui oleh leader shift." }'
+```
+
+- `approve` → task `status: "completed"`, `approval.status: "approved"`.
+- `reject` → task `status: "cancelled"`, `approval.status: "rejected"`.
+- **200** — updated task object.
+- **404** — task not found.
+- **409** — task is not waiting for approval.
+- **422** — invalid `decision`.
+- **503** — database unavailable.
+
+### `GET /api/history`
+
+List persisted tasks, newest first.
+
+**Headers:** `X-API-Key` (required)
+
+**200**
+```json
+{ "items": [ { /* task object */ } ] }
+```
+
+### `GET /api/metrics/tokens`
+
+Aggregate LLM token usage across persisted tasks (official token-efficiency
+metric). Tasks without LLM usage are reported as `unavailable`.
+
+**Headers:** `X-API-Key` (required)
+
+**200**
+```json
+{
+  "totals": {
+    "tasks": 5,
+    "tasks_with_usage": 2,
+    "input_tokens": 1224,
+    "output_tokens": 362,
+    "unavailable": 3
+  },
+  "by_model": [
+    { "model": "gpt-4o-mini", "tasks": 2, "input_tokens": 1224, "output_tokens": 362 }
+  ],
+  "items": [
+    { "task_id": "…", "model": "gpt-4o-mini", "input_tokens": 612, "output_tokens": 181, "created_at": "…" }
+  ]
+}
+```
+
+**503** — database unavailable.
+
+## CORS
+
+The API allows browser calls from origins configured in `CORS_ORIGINS`
+(comma-separated; default `http://localhost:3000,http://127.0.0.1:3000`).
+Preflight (`OPTIONS`) requests return `Access-Control-Allow-Origin` for allowed
+origins. Add your frontend origin to `CORS_ORIGINS` in `.env` before deploying.
+
+## Task object
+
+```json
+{
+  "task_id": "a046ba4d-…",
+  "run_id": "…",
+  "worker": "it_helpdesk",
+  "description": "Wi-Fi di Laboratorium Komputer 1 mengalami gangguan koneksi.",
+  "location": "zone-A1",
+  "device_type": "access_point",
+  "requested_action": null,
+  "status": "completed",
+  "created_at": "2026-10-09T11:27:25.699147+00:00",
+  "steps": [
+    {
+      "step_id": "inspect_report",
+      "name": "Search synthetic helpdesk data",
+      "status": "completed",
+      "source_ids": ["device-AP-A1-01", "device-AP-A1-02", "incident-001", "incident-008", "zone-A1", "building-A"]
+    },
+    {
+      "step_id": "analyze_evidence",
+      "name": "Analyze evidence with LLM",
+      "status": "completed",
+      "model": "gpt-4o-mini",
+      "usage": { "input_tokens": 612, "output_tokens": 181 }
+    },
+    {
+      "step_id": "prepare_result",
+      "name": "Prepare result from synthetic data",
+      "status": "completed",
+      "source_ids": ["device-AP-A1-01", "device-AP-A1-02", "incident-001", "incident-008", "zone-A1", "building-A"]
+    }
+  ],
+  "result": {
+    "facts": [
+      { "dataset": "devices", "record": { "id": "device-AP-A1-01", "…": "…" } }
+    ],
+    "evidence": [
+      { "source_id": "device-AP-A1-01", "dataset": "devices" }
+    ],
+    "analysis": {
+      "summary": "Gangguan koneksi Wi-Fi di Laboratorium Komputer 1 telah dilaporkan.",
+      "findings": ["…"],
+      "recommendations": ["…"],
+      "uncertainty": ["Data bersifat sintetis."],
+      "model": "gpt-4o-mini",
+      "usage": { "input_tokens": 612, "output_tokens": 181 }
+    },
+    "interpretation": ["Found 8 matching records in synthetic datasets.", "…"],
+    "uncertainty": ["These records are synthetic and do not represent verified live campus conditions."],
+    "recommendations": ["Verify the relevant device and incident details before taking action."],
+    "data_label": "SYNTHETIC"
+  },
+  "error": null,
+  "approval": null,
+  "llm_model": "gpt-4o-mini",
+  "input_tokens": 612,
+  "output_tokens": 181
+}
+```
+
+### Field notes
+
+- `steps` — execution timeline. Every step carries an explicit `status`. The
+  `analyze_evidence` step is `skipped` when `LLM_ENABLED` is not `true`.
+- `requested_action` — normalized (lower-cased) action requested by the client;
+  `null` when none. Sensitive values trigger the approval gate.
+- `approval` — `null` unless the task required approval. When set, it contains
+  `required`, `status` (`pending`/`approved`/`rejected`), `action`, `decision`,
+  `note`, and `decided_at`.
+- `llm_model` / `input_tokens` / `output_tokens` — per-task LLM usage; `null`
+  when the LLM step did not run or usage was unavailable.
+- `result.facts` — original dataset records. `result.evidence` — `source_id` +
+  `dataset`, de-duplicated. Both are **always derived from the data adapter**; the
+  LLM cannot add or invent them.
+- `result.analysis` — validated LLM output (`summary`, `findings`,
+  `recommendations`, `uncertainty`, `model`, `usage`), or `null` when the LLM step
+  is disabled.
+- `result.interpretation` / `uncertainty` / `recommendations` — user-facing arrays;
+  deterministic baseline plus LLM additions when enabled.
+- `result.data_label` — always `SYNTHETIC`.
+- `error` — populated (`{code, message}`) only for failed tasks.
+
+## LLM analysis (optional)
+
+When `LLM_ENABLED=true`, the workflow runs `inspect_report → analyze_evidence →
+prepare_result` (then `request_approval` when a sensitive action is requested).
+The model:
+
+- receives only a bounded digest of already-retrieved records (max 6 per dataset,
+  allow-listed fields, truncated), never the whole dataset;
+- is not asked for, and cannot produce, source IDs;
+- returns Structured Output validated with Pydantic.
+
+If the provider fails, times out, or returns invalid output, the API responds:
+
+- HTTP `500`, and
+- the task is persisted with `status: "failed"`, `error.code: "LLM_ANALYSIS_FAILED"`,
+  and an `analyze_evidence` step marked `failed`.
+
+A failed LLM step is **never** reported as `completed`.
+
+Token usage from the provider is stored in `result.analysis.usage` when available;
+otherwise it is `{"status": "unavailable"}`. No prompt content or credentials are
+logged.
+
+### Retry and timeout
+
+The provider call uses a bounded retry policy:
+
+- Each request has a timeout (`LLM_TIMEOUT_SECONDS`, default 30s).
+- Transient errors — connection/timeout, HTTP 408/409/429, and 5xx — are retried
+  with exponential backoff + jitter, up to `LLM_MAX_ATTEMPTS` (default 3, capped
+  at 5).
+- Non-transient errors (e.g. 400/401) and structurally invalid output are **not**
+  retried; they fail fast as `LLM_ANALYSIS_FAILED`.
+- The OpenAI SDK's own retry loop is disabled so the total number of attempts is
+  exactly the configured bound.
+
+## Status values
+
+Implemented: `queued`, `running`, `waiting_for_approval`, `completed`, `failed`,
+`cancelled`.
+
+- `waiting_for_approval` — a sensitive `requested_action` paused the workflow;
+  resolve it via `POST /api/tasks/{task_id}/approval`.
+- `cancelled` — the approval decision was `reject`.
+
+## Endpoint implementation status
+
+| Endpoint | Implemented | Tested | Notes |
+|---|---|---|---|
+| `GET /health` | yes | yes | public |
+| `POST /api/tasks` | yes | yes | auth + validation + persistence |
+| `GET /api/tasks/{id}` | yes | yes | reads from PostgreSQL |
+| `GET /api/tasks/{id}/runs` | yes | yes | normalized run/steps |
+| `POST /api/tasks/{id}/approval` | yes | yes | human-in-the-loop gate |
+| `GET /api/history` | yes | yes | reads from PostgreSQL |
+| `GET /api/metrics/tokens` | yes | yes | aggregates persisted LLM usage |
+| LLM-backed analysis | yes | yes (mock) + live 1x | optional via `LLM_ENABLED=true` (`analyze_evidence`) |

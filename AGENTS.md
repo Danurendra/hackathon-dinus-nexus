@@ -21,6 +21,73 @@ Implementasikan DinusNexus sebagai Unified AI Digital Campus Worker. Bangun fond
 11. **Pertahankan perubahan pengguna.** Jangan membuang perubahan lokal yang tidak berkaitan. Jangan menjalankan perintah destruktif seperti reset keras/clean tanpa persetujuan eksplisit.
 12. **Dokumentasikan perubahan.** Perbarui dokumentasi jika ada perubahan keputusan, API, workflow, setup, keamanan, atau deployment.
 
+## Stack dan perubahan teknologi
+
+Stack backend yang **sudah diputuskan** dan tidak boleh diganti tanpa keputusan tim:
+
+- Python 3.12, FastAPI, LangGraph, PostgreSQL 16.
+- SQLAlchemy 2.x, Alembic, Pydantic, python-dotenv/pydantic-settings.
+- pytest + httpx untuk test; Docker untuk PostgreSQL lokal.
+- OpenAI SDK dipakai untuk langkah opsional `analyze_evidence`
+  (`LLM_ENABLED=true`). Workflow default tetap deterministik; jangan menambah
+  provider LLM lain atau memanggil API berbayar di test rutin tanpa persetujuan.
+- Dataset JSON sintetis di `src/data/` adalah satu-satunya sumber record
+  operasional saat ini. Jangan menampilkan data simulasi sebagai data live.
+- Fakta/evidence hanya berasal dari data adapter; LLM tidak boleh mengarang
+  record atau source ID.
+
+## Struktur direktori
+
+```text
+src/main.py            # FastAPI app + LangGraph workflow + endpoint
+src/auth.py            # X-API-Key dependency
+src/data_adapter.py    # retrieval keyword/synonym atas dataset JSON
+src/data/*.json        # dataset sintetis (buildings, zones, devices, incidents)
+src/db/session.py      # SQLAlchemy engine/SessionLocal/Base
+src/db/models.py       # model Task, TaskRun, ExecutionStep
+src/llm/client.py      # wrapper OpenAI Responses API
+src/llm/analysis.py    # node LLM opsional (bounded digest + Structured Outputs)
+alembic/               # konfigurasi + migrasi skema
+tests/                 # pytest (adapter, workflow, api, persistence, llm)
+docs/                  # dokumentasi teknis
+check_data.py          # validasi relasi dataset
+```
+
+## Perintah setup, run, dan test
+
+```bash
+source .venv/bin/activate
+pip install -r requirements.txt        # dependency
+alembic upgrade head                   # terapkan skema
+uvicorn src.main:app --reload          # jalankan API
+python -m compileall -q src            # cek sintaks
+python check_data.py                   # validasi dataset
+pytest                                 # jalankan test
+```
+
+Jalankan perintah ini dan laporkan hasil nyata (exit code/output), jangan
+mengklaim lulus tanpa menjalankannya.
+
+## Keamanan dan rahasia
+
+- `.env` wajib gitignored; gunakan `.env.example` dengan placeholder.
+- Jangan mencetak/menyalin API key, token, atau password ke log, output, chat,
+  dokumen, screenshot, atau commit.
+- Endpoint terproteksi memakai header `X-API-Key` dari `DINUSNEXUS_API_KEY`.
+  `GET /health` publik. Jangan melonggarkan auth tanpa keputusan tim.
+- Jangan memasukkan data pribadi nyata; gunakan data sintetis/anonymized.
+
+## Aturan sebelum commit
+
+1. `pytest` hijau (atau laporkan test yang gagal secara eksplisit).
+2. `python -m compileall -q src` exit 0.
+3. Tinjau `git status`/`git diff`; pastikan `.env`, secret, `*.bak`, dan artefak
+   tidak ikut ter-stage.
+4. Perbarui dokumentasi terkait bila kontrak API, skema DB, state workflow, atau
+   perilaku pencarian berubah.
+5. Commit terfokus dengan Conventional Commits; jangan push tanpa memeriksa
+   branch dan remote.
+
 ## Urutan kerja agent
 
 1. Ringkas kondisi repository dan file terkait.

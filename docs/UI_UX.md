@@ -14,6 +14,37 @@ Gunakan satu Unified Workspace dengan tiga area konseptual:
 
 Implementasi responsif boleh menggabungkan panel pada layar kecil, tetapi kemampuan inti tidak boleh hilang.
 
+## Komponen UI Dasar
+
+Berikut komponen UI yang telah dikembangkan:
+
+### 1. Layout Components
+- `Header` - Navbar dengan logo, navigasi, dan user menu
+- `Sidebar` - Navigasi dengan dropdown untuk campus workers dan analytics
+- `MainLayout` - Layout utama dengan header dan sidebar
+
+### 2. UI Components
+- `Card` - Komponen card dengan berbagai varian (default, glass, bordered)
+- `Badge` - Badge status dengan berbagai warna
+- `StatusBadge` - Badge status khusus untuk task workflow
+- `Button` - Tombol dengan berbagai varian (primary, secondary, outline, ghost, destructive)
+- `Input` - Input field dengan label dan error handling
+- `Textarea` - Textarea dengan label dan error handling
+- `Select` - Dropdown select dengan label dan error handling
+- `Alert` - Komponen alert dengan berbagai varian
+- `LoadingSpinner` - Spinner loading dengan ukuran berbeda
+- `EmptyState` - State kosong dengan ikon dan aksi
+
+### 3. Workflow Components
+- `TaskCard` - Kartu task dengan detail dan status
+- `ExecutionTimeline` - Timeline eksekusi dengan step dan status
+
+### 4. Chat Components
+- `ChatInput` - Input chat dengan attachment dan voice recording
+
+### 5. Campus Twin Components
+- `CampusMap` - Peta kampus dengan building dan status
+
 ## Chat dan input
 
 - Pengguna dapat memulai tugas baru dengan bahasa alami.

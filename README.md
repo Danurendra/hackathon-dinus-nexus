@@ -2,44 +2,191 @@
 
 **Unified AI Digital Campus Worker** — satu workspace untuk membantu berbagai peran operasional kampus menjalankan pekerjaan berbasis workflow, sumber data, dokumen, dan AI.
 
-> Status dokumen: baseline produk dan aturan kolaborasi yang sudah disepakati. Detail yang belum diputuskan secara eksplisit tetap ditandai `TBD`; jangan menganggap usulan sebagai keputusan final.
+> Prototype hackathon. **Workflow IT Helpdesk adalah vertical slice pertama yang berjalan end-to-end.** Dataset yang dipakai bersifat **sintetis** dan selalu diberi label `SYNTHETIC`. Jangan menganggapnya sebagai kondisi kampus nyata.
 
-## Visi
+## Status saat ini (faktual)
 
-DinusNexus menyatukan campus workers dalam satu platform percakapan dan operasional. Pengguna dapat mengirim instruksi, mengunggah dokumen, melihat proses eksekusi, memeriksa bukti dan hasil, serta tetap memegang kendali atas keputusan yang berdampak penting.
+| Area | Status |
+|---|---|
+| IT Helpdesk deterministic flow (input → retrieval → evidence → persist → history) | implemented, tested |
+| PostgreSQL persistence + Alembic migration | implemented, tested |
+| API key authentication (`X-API-Key`) | implemented, tested |
+| CORS untuk frontend + token metrics | implemented, tested |
+| Approval gate (`waiting_for_approval` + approve/reject) | implemented, tested |
+| Normalisasi `task_runs`/`execution_steps` | implemented, tested |
+| CI (GitHub Actions: compile, data check, migrasi, pytest) | implemented (workflow) |
+| Input validation & error handling | implemented, tested |
+| LLM `analyze_evidence` (opsional, `LLM_ENABLED=true`) | implemented, tested (mock) + diverifikasi live 1x |
+| Campus Twin 2D, upload dokumen, 7 role lain | planned |
+| API/DB/Testing/Development docs | implemented |
 
-## Campus roles
+Detail verifikasi ada di [`docs/TESTING.md`](docs/TESTING.md) dan [`docs/DEVELOPMENT_LOG.md`](docs/DEVELOPMENT_LOG.md).
 
-1. Admissions Staff (PMB): menjawab pertanyaan calon mahasiswa dan memeriksa kelengkapan dokumen pendaftaran.
-2. Finance Staff: menyiapkan pengingat pembayaran dan merekonsiliasi catatan UKT/SPP.
-3. Academic Administration (BAAK): membantu KRS, jadwal, dan surat keterangan mahasiswa.
-4. PDDikti Operator: memvalidasi data mahasiswa dan dosen sebelum pelaporan.
-5. IT Helpdesk: membantu reset akun dan triase masalah Wi-Fi/jaringan.
-6. Quality Assurance Staff: memetakan dokumen pendukung ke persyaratan akreditasi.
-7. Career Center Staff: melakukan tracer study dan merangkum survei alumni.
-8. Digital Archive Staff: mengklasifikasikan dan menemukan dokumen kampus.
+## Fitur IT Helpdesk
 
-## Scope prototype
+1. Client mengirim laporan ke `POST /api/tasks` (dengan `X-API-Key`).
+2. Backend memvalidasi input dan menyimpan task (`queued`) ke PostgreSQL.
+3. LangGraph menjalankan `inspect_report → analyze_evidence → prepare_result`
+   secara deterministik (langkah LLM opsional).
+4. Data adapter mencari perangkat, insiden, zona, dan gedung yang relevan dari
+   dataset sintetis (dengan filter zona dan tipe perangkat).
+5. Hasil memuat `facts` (record asli), `evidence` (source id + dataset),
+   `interpretation`, `uncertainty`, dan `recommendations`, semuanya berlabel
+   `SYNTHETIC`.
+6. Task, steps, dan hasil tersimpan persisten (tabel `tasks` + `task_runs` +
+   `execution_steps`); history bertahan setelah restart.
+7. Bila `requested_action` termasuk aksi sensitif, workflow berhenti di
+   `waiting_for_approval` dan menunggu keputusan manusia via
+   `POST /api/tasks/{task_id}/approval`. Backend **tidak** mengeksekusi aksi
+   sensitif secara otomatis.
 
-- Semua delapan role menjadi bagian dari satu workspace dan arsitektur bersama.
-- **IT Helpdesk adalah workflow pertama yang harus selesai secara end-to-end.**
-- Campus Twin dimasukkan sebagai kemampuan tambahan yang memberi konteks lokasi/infrastruktur pada workflow terkait. Prioritas visual awal adalah peta/visualisasi 2D interaktif; 3D bukan syarat MVP.
-- MVP menggunakan pola stateful workflow agent: pekerjaan memiliki status, langkah eksekusi, evidence/sumber, hasil, dan riwayat.
-- UI harus mendukung chat, upload dokumen, input baru saat demo, tampilan proses yang benar-benar berasal dari backend, sumber/bukti, hasil, dan history yang bertahan setelah refresh.
-- Manusia tetap memegang kendali atas tindakan sensitif melalui approval/otorisasi.
-- Target deployment: Azure, memanfaatkan kredit Azure yang tersedia sekitar US$100. Layanan dan konfigurasi Azure final masih `TBD`.
-- OpenCode digunakan untuk membantu coding. API key/token disediakan panitia; model, endpoint, format autentikasi, dan batasannya masih `TBD`.
+## Arsitektur singkat
 
-## Kriteria implementasi minimum
+```text
+FastAPI (src/main.py) → LangGraph (inspect_report, analyze_evidence,
+      prepare_result, request_approval)
+      → data adapter (src/data_adapter.py) → JSON datasets (src/data/)
+      → PostgreSQL (src/db/: tasks, task_runs, execution_steps) → response + history
+```
 
-Satu workflow operasional harus berjalan dari input sampai output melalui UI yang dapat dipakai; minimal ada satu sumber data atau tool di luar LLM; status/sumber/ringkasan dan history harus terlihat; input baru harus bisa dicoba saat live demo; data simulasi harus diberi label; setup dan hasil pengujian harus didokumentasikan.
+Lihat [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) (bagian "Implemented Architecture") dan [`docs/API.md`](docs/API.md).
+
+## Stack
+
+Python 3.12 · FastAPI · LangGraph · PostgreSQL 16 · SQLAlchemy 2.x · Alembic ·
+Pydantic · pytest + httpx · Docker. OpenAI SDK dipakai untuk langkah LLM
+opsional (`analyze_evidence`).
+
+## Prasyarat
+
+- Ubuntu/Linux, Python 3.12, Git, Docker.
+- Virtual environment `.venv`.
+
+## Setup lokal
+
+```bash
+# 1. Virtual environment.
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+# 2. Konfigurasi environment.
+cp .env.example .env
+# Isi DATABASE_URL, DINUSNEXUS_API_KEY, dan (opsional) OPENAI_API_KEY di .env.
+# JANGAN commit .env.
+```
+
+### Menjalankan PostgreSQL
+
+```bash
+docker run -d --name dinusnexus-postgres \
+  -e POSTGRES_USER=dinusnexus \
+  -e POSTGRES_PASSWORD=<password-lokal-anda> \
+  -e POSTGRES_DB=dinusnexus \
+  -p 127.0.0.1:5434:5432 \
+  -v dinusnexus_pgdata:/var/lib/postgresql/data \
+  postgres:16
+
+# Terapkan skema.
+alembic upgrade head
+```
+
+### Menjalankan API
+
+```bash
+source .venv/bin/activate
+uvicorn src.main:app --reload
+```
+
+- Base URL: `http://127.0.0.1:8000`
+- Swagger UI: `http://127.0.0.1:8000/docs`
+- OpenAPI JSON: `http://127.0.0.1:8000/openapi.json`
+
+### Environment variables
+
+| Variable | Wajib | Keterangan |
+|---|---|---|
+| `DATABASE_URL` | ya | koneksi `postgresql+psycopg://…` |
+| `DINUSNEXUS_API_KEY` | ya | API key backend (header `X-API-Key`) |
+| `CORS_ORIGINS` | tidak | origin frontend yang diizinkan (default `http://localhost:3000,http://127.0.0.1:3000`) |
+| `TEST_DATABASE_URL` | tidak | database terpisah untuk test |
+| `LLM_ENABLED` | tidak | `true` untuk mengaktifkan langkah LLM (default `false`) |
+| `OPENAI_API_KEY` | tidak | fallback provider dan wajib bila `LLM_ENABLED=true` |
+| `OPENAI_MODEL` | tidak | model analisis OpenAI, default `gpt-5-nano` |
+| `OPENAI_BASE_URL` | tidak | endpoint OpenAI, default `https://api.openai.com/v1` |
+| `LLM_FALLBACK_ENABLED` | tidak | gunakan OpenAI jika provider utama gagal, default `true` |
+| `LLM_MODEL` | tidak | model provider utama, default `qwen3-coder-flash` |
+| `LLM_MAX_ATTEMPTS` | tidak | batas percobaan provider (default `3`, maks `5`) |
+| `LLM_TIMEOUT_SECONDS` | tidak | timeout per request (default `30`) |
+| `LLM_RETRY_BASE_DELAY` | tidak | basis backoff detik (default `0.5`) |
+
+Nilai asli tidak boleh masuk source code, dokumentasi, log, atau Git.
+
+## Endpoint
+
+| Method | Path | Auth | Keterangan |
+|---|---|---|---|
+| GET | `/health` | publik | liveness |
+| POST | `/api/tasks` | `X-API-Key` | buat task + jalankan workflow |
+| GET | `/api/tasks/{task_id}` | `X-API-Key` | baca task |
+| GET | `/api/tasks/{task_id}/runs` | `X-API-Key` | run & step ternormalisasi |
+| POST | `/api/tasks/{task_id}/approval` | `X-API-Key` | approve/reject (`waiting_for_approval`) |
+| GET | `/api/history` | `X-API-Key` | daftar task (terbaru dulu) |
+| GET | `/api/metrics/tokens` | `X-API-Key` | agregat penggunaan token LLM |
+
+Kontrak lengkap: [`docs/API.md`](docs/API.md). Langkah LLM bersifat opsional
+(`LLM_ENABLED=true`); ketika aktif, node `analyze_evidence` menganalisis bukti
+dengan OpenAI dan hasilnya divalidasi (Structured Outputs). Jika gagal, task
+tetap tercatat sebagai `failed`.
+
+## Menjalankan test
+
+```bash
+source .venv/bin/activate
+pytest
+```
+
+Test berjalan terhadap database terpisah (`<db>_test`), tidak menyentuh data
+demo. Hasil terakhir: **62 passed, 1 skipped**. Skenario dan fixture: [`docs/TESTING.md`](docs/TESTING.md).
+
+## Known limitations
+
+- **Data sintetis**: seluruh dataset adalah fixture JSON, bukan integrasi live.
+- **Keyword search, bukan semantic search**: pencarian berbasis kata kunci +
+  sinonim. Kata seperti `tidak` belum menjadi stop word sehingga bisa muncul
+  kecocokan insidental.
+- **Sinkron, tanpa background worker**: workflow berjalan di dalam request dan
+  belum ada eksekusi asinkron/queue.
+- **Approval gate, bukan eksekusi aksi**: keputusan `approve` menandai task
+  `completed` dan mencatat otorisasi manusia, tetapi backend tidak menjalankan
+  aksi sensitif apa pun. Ini disengaja (human-in-the-loop).
+- **LLM opsional**: default deterministik. Langkah `analyze_evidence` hanya jalan
+  bila `LLM_ENABLED=true`; kegagalan LLM membuat task `failed` (tidak pernah
+  `completed`). Fakta/evidence tetap berasal dari dataset, bukan dari model.
+- **Retry terbatas**: error provider transien (rate limit, timeout, 5xx) di-retry
+  dengan exponential backoff + jitter, dibatasi `LLM_MAX_ATTEMPTS`. Error
+  non-transien (mis. 400/401) dan output tidak valid tidak di-retry.
+- **Steps JSON tetap dipertahankan**: respons task masih memuat `steps` (JSON)
+  untuk kompatibilitas; `task_runs`/`execution_steps` adalah store terkueri.
+- **`create_all` saat startup**: masih dipakai untuk kenyamanan dev; Alembic
+  adalah jalur migrasi resmi. Jalankan `alembic upgrade head`.
+
+## Campus roles (target)
+
+1. Admissions Staff (PMB) · 2. Finance Staff · 3. Academic Administration (BAAK)
+· 4. PDDikti Operator · 5. IT Helpdesk · 6. Quality Assurance Staff ·
+7. Career Center Staff · 8. Digital Archive Staff.
 
 ## Dokumen proyek
 
 - [`AGENTS.md`](AGENTS.md): instruksi untuk coding agent/OpenCode.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md): branching, commit, dan pull request.
 - [`docs/PRODUCT_SCOPE.md`](docs/PRODUCT_SCOPE.md): produk, delapan role, batas MVP.
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): arsitektur konseptual dan tanggung jawab komponen.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): arsitektur konseptual + implementasi.
+- [`docs/API.md`](docs/API.md): referensi endpoint.
+- [`docs/DATABASE.md`](docs/DATABASE.md): model, migrasi, persistence.
+- [`docs/TESTING.md`](docs/TESTING.md): perintah test, skenario, hasil.
+- [`docs/DEVELOPMENT_LOG.md`](docs/DEVELOPMENT_LOG.md): log milestone.
 - [`docs/UI_UX.md`](docs/UI_UX.md): aturan UX dan tampilan.
 - [`docs/WORKFLOWS.md`](docs/WORKFLOWS.md): alur stateful workflow dan MVP Helpdesk.
 - [`docs/DATA_SECURITY.md`](docs/DATA_SECURITY.md): sumber data, dokumen, keamanan, dan human approval.
@@ -48,7 +195,13 @@ Satu workflow operasional harus berjalan dari input sampai output melalui UI yan
 - [`docs/DOCUMENTATION_POLICY.md`](docs/DOCUMENTATION_POLICY.md): aturan file Markdown dan pemeliharaannya.
 - [`docs/DEVELOPMENT_PLAN.md`](docs/DEVELOPMENT_PLAN.md): urutan implementasi dan Definition of Done.
 - [`docs/TEAM_DEVELOPMENT_PLAN.md`](docs/TEAM_DEVELOPMENT_PLAN.md): pembagian tiga role, kerja paralel, checkpoint, dan workflow GitHub.
+- [`docs/FEATURE_TASK_ASSIGNMENT.md`](docs/FEATURE_TASK_ASSIGNMENT.md): breakdown tugas per fitur untuk tiga anggota tim.
+- [`docs/TECH_STACK_RECOMMENDATION.md`](docs/TECH_STACK_RECOMMENDATION.md): analisis dan rekomendasi tech stack.
+- [`docs/MCP_PLUGINS.md`](docs/MCP_PLUGINS.md): plugin OpenCode dan tools development.
 - [`docs/DECISIONS.md`](docs/DECISIONS.md): keputusan final versus hal yang belum ditentukan.
+- [`docs/UI_COMPONENTS.md`](docs/UI_COMPONENTS.md): dokumentasi komponen UI DinusNexus.
+- [`docs/CHATBOT_FEATURE.md`](docs/CHATBOT_FEATURE.md): dokumentasi fitur chatbot AI.
+- [`docs/CAMPUS_TWIN_DESIGN.md`](docs/CAMPUS_TWIN_DESIGN.md): spesifikasi visual Campus Twin 2D.
 
 ## Cara menggunakan dokumen ini
 
@@ -59,4 +212,6 @@ Satu workflow operasional harus berjalan dari input sampai output melalui UI yan
 
 ## Catatan integritas
 
-Dokumen ini adalah baseline perencanaan, bukan klaim bahwa fitur sudah diimplementasikan. Semua fitur baru berstatus rencana sampai kode dan test membuktikannya. Cantumkan penggunaan OpenCode, model/API panitia, library, template, dan kontribusi tim pada disclosure submission sesuai aturan hackathon.
+Dokumen adalah acuan, bukan klaim fitur. Gunakan status `implemented`, `tested`,
+`partial`, atau `planned` secara jujur. Cantumkan penggunaan OpenCode, model/API,
+library, dan kontribusi tim pada disclosure submission sesuai aturan hackathon.

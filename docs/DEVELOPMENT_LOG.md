@@ -1,0 +1,300 @@
+# Development Log
+
+Reverse-chronological milestones. Each entry records changes, reasons, files,
+commands actually run, and actual results. Do not claim a test passed without a
+recorded run.
+
+---
+
+## 2026-10-09 — Approval gate and normalized run/step persistence
+
+**Goal.** Add a real human-in-the-loop gate for sensitive requests and normalize
+the execution record into queryable tables, without breaking the existing task
+response contract.
+
+### Changes
+
+| Area | Files | Notes |
+|---|---|---|
+| Approval gate | `src/main.py` | `SENSITIVE_ACTIONS`, `request_approval` node, `route_after_prepare` |
+| Normalization | `src/db/models.py` | `TaskRun`, `ExecutionStep`; `persist_run()` helper |
+| Schema | `alembic/versions/0003_runs_steps_approval.py` | `tasks.requested_action`/`approval`, `task_runs`, `execution_steps` |
+| API | `src/main.py` | `POST /api/tasks/{id}/approval`, `GET /api/tasks/{id}/runs` |
+| Tests | `tests/test_approval.py`, `tests/conftest.py` | approval flow, runs, normalization; truncate all task tables |
+| Docs | `README.md`, `docs/API.md`, `docs/DATABASE.md`, `docs/TESTING.md` | states, endpoints, tables |
+
+### Notes
+
+- A sensitive `requested_action` (`reset_account`, `restart_device`,
+  `change_config`, `network_change`) routes to `request_approval`; the task is
+  stored as `waiting_for_approval`. This is human-in-the-loop by design: the
+  backend records the authorization decision but does **not** execute the action.
+- `approve` → `completed`; `reject` → `cancelled`. Deciding on a task that is not
+  waiting returns `409`.
+- The normalized `task_runs`/`execution_steps` tables are written in the same
+  transaction as the task update. `tasks.steps` (JSON) is kept so the response
+  contract is unchanged.
+- Migration `0003` is additive. During setup, `create_all` at startup had already
+  created the two new tables before Alembic ran, causing `DuplicateTable`; the
+  empty orphan tables were dropped and `alembic upgrade head` recreated them
+  cleanly. No data was lost (dev tables were empty).
+
+### Commands and actual results
+
+```text
+python -m compileall -q src alembic   -> exit 0
+alembic upgrade head                  -> 0002 -> 0003 (dev + test)
+alembic check                         -> No new upgrade operations detected.
+pytest                                -> 62 passed, 1 skipped in 7.10s
+```
+
+### Open issues
+
+- No background/async execution; the gate is synchronous and in-request.
+- Approval records authorization only; action execution is intentionally absent.
+- `create_all` at startup can still race with Alembic (see docs/DATABASE.md).
+
+### Next steps
+
+1. Background execution/queue so `waiting_for_approval` tasks can be resumed.
+2. Rate limit / RBAC beyond the single API key.
+3. Frontend wiring for `/api/tasks/{id}`, `/runs`, `/approval`, `/metrics/tokens`.
+
+---
+
+## 2026-10-09 — Frontend integration (CORS), token metrics, and CI
+
+**Goal.** Remove the biggest remaining blockers to a demo-ready backend: allow
+browser calls from the frontend, expose the official token-usage metric, and
+verify every change automatically.
+
+### Changes
+
+| Area | Files | Notes |
+|---|---|---|
+| CORS | `src/main.py`, `.env.example` | `CORSMiddleware` from `CORS_ORIGINS` |
+| Token metrics | `src/main.py` | `GET /api/metrics/tokens` (SQL aggregation) |
+| Schema | `src/db/models.py`, `alembic/versions/0002_add_token_usage.py` | nullable `llm_model`, `input_tokens`, `output_tokens` |
+| Persistence | `src/main.py` | `extract_usage()` populates token columns on completion |
+| CI | `.github/workflows/ci.yml` | Postgres service, compile, data check, migrate, pytest |
+| Tests | `tests/test_api.py`, `tests/test_persistence.py`, `tests/conftest.py` | CORS, metrics, token persistence |
+| Docs | `README.md`, `docs/API.md`, `docs/DATABASE.md`, `docs/TESTING.md` | endpoints, CORS, columns, CI |
+
+### Notes
+
+- Migration `0002` is additive/nullable; the deterministic path is unaffected.
+  Applied to the dev and test databases with `alembic upgrade head` (no data loss,
+  no volume reset).
+- The test fixture no longer drops tables at teardown so the test database stays
+  consistent with the Alembic revision state.
+- Token columns are extracted from `result.analysis.usage`; when usage is
+  unavailable the columns stay `NULL` and the metric counts them as `unavailable`.
+
+### Commands and actual results
+
+```text
+python -m compileall -q src alembic   -> exit 0
+alembic upgrade head                  -> 0001 -> 0002 (dev + test)
+alembic check                         -> No new upgrade operations detected.
+pytest                                -> 49 passed, 1 skipped in 3.96s
+```
+
+### Open issues
+
+- No approval gate (`waiting_for_approval`) or background execution yet.
+- CI workflow validated locally (YAML parsed, same commands run); GitHub run not
+  yet observed.
+
+### Next steps
+
+1. Watch the first CI run and fix any runner-specific issues.
+2. Implement the approval gate and normalized `task_runs`/`execution_steps`.
+3. Wire the frontend to `/api/tasks`, `/api/history`, `/api/metrics/tokens`.
+
+---
+
+## 2026-10-09 — Bounded LLM retry, timeout, and backoff
+
+**Goal.** Harden the optional LLM step so transient provider failures are
+retried a bounded number of times, non-transient failures fail fast, and every
+request has a timeout.
+
+### Changes
+
+| Area | Files | Notes |
+|---|---|---|
+| LLM analysis | `src/llm/analysis.py` | `_request_with_retry`, `_is_transient`, `_backoff_delay`, `max_attempts`, timeout per call |
+| LLM client | `src/llm/client.py` | `max_retries=0` (single, testable retry policy) |
+| Tests | `tests/test_llm_analysis.py` | retry/clamp/no-retry scenarios |
+| Config/docs | `.env.example`, `README.md`, `docs/API.md`, `docs/TESTING.md` | `LLM_MAX_ATTEMPTS`, `LLM_TIMEOUT_SECONDS`, `LLM_RETRY_BASE_DELAY` |
+
+### Policy
+
+- Retry only transient errors: connection/timeout, HTTP 408/409/429, and 5xx.
+- Exponential backoff (base `LLM_RETRY_BASE_DELAY`) with jitter; attempts bounded
+  by `LLM_MAX_ATTEMPTS` (default 3, clamped 1..5).
+- Non-transient errors (400/401) and structurally invalid output fail fast.
+- OpenAI SDK internal retries disabled so total attempts equal the configured
+  bound.
+
+### Commands and actual results
+
+```text
+python -m compileall -q src   -> exit 0
+pytest tests/test_llm_analysis.py -v
+  -> 14 passed, 1 skipped
+pytest
+  -> 45 passed, 1 skipped in 3.51s
+```
+
+### Open issues
+
+- Backoff timing is not asserted (time.sleep patched in tests).
+- No circuit breaker; each request retries independently.
+
+### Next steps
+
+1. Surface retry count in `result.analysis` metadata for observability.
+2. Consider background execution for long LLM calls.
+
+---
+
+## 2026-10-09 — Optional LLM `analyze_evidence` step (Structured Outputs)
+
+**Goal.** Integrate OpenAI into the LangGraph workflow as an optional, validated
+analysis step, without letting the model invent facts/source IDs or masking
+failures.
+
+### Changes
+
+| Area | Files | Notes |
+|---|---|---|
+| LLM analysis | `src/llm/analysis.py` (new) | bounded digest, allow-listed fields, prompt, `AnalysisOutput` schema, `analyze_findings`, `LLMAnalysisError`, usage capture |
+| Workflow | `src/main.py` | new `analyze_evidence` node, `StepFailedError`, `llm_enabled()`, `analysis` in state, `_persist_failed_task`, 3-node graph |
+| Tests | `tests/test_llm_analysis.py` (new), `tests/test_workflow.py`, `tests/test_api.py`, `tests/test_persistence.py`, `pytest.ini` | 42 collected (41 passed, 1 live skipped) |
+| Config | `.env.example`, `pytest.ini` | `LLM_ENABLED=false` default; `live_llm` marker |
+| Docs | `README.md`, `docs/API.md`, `docs/ARCHITECTURE.md`, `docs/TESTING.md` | analysis field, failure behavior, trust boundaries |
+
+### Design decisions
+
+- **Opt-in.** `LLM_ENABLED` defaults to `false`, so tests and CI stay free and
+  deterministic. Demo enables it explicitly.
+- **Trust boundary.** `facts`/`evidence` are computed only from the data adapter.
+  The model receives at most 6 records/dataset with allow-listed, truncated
+  fields and is never asked for source IDs (so it cannot invent them).
+- **Structured Outputs.** `client.responses.parse(text_format=AnalysisOutput)`
+  with a strict Pydantic schema; invalid output raises `LLMAnalysisError`.
+- **Fail loud.** LLM failure → `StepFailedError` → task `failed` with
+  `LLM_ANALYSIS_FAILED` and a failed `analyze_evidence` step; never `completed`.
+- **Token efficiency.** Bounded digest; provider usage stored in
+  `result.analysis.usage` (`{"status": "unavailable"}` when absent). No prompt or
+  credential logging.
+
+### Commands and actual results
+
+```text
+python -m py_compile src/main.py src/llm/analysis.py
+  -> compile ok
+pytest
+  -> 41 passed, 1 skipped in 3.76s
+
+# live verification (paid, one call)
+analyze_findings(zone-A1 Wi-Fi report, access_point findings)
+  -> status: OK
+  -> model: gpt-4o-mini
+  -> usage: {input_tokens: 612, output_tokens: 181}
+  -> summary: "Gangguan koneksi Wi-Fi di Laboratorium Komputer 1 telah dilaporkan."
+```
+
+### Open issues
+
+- No retry/backoff around provider errors yet.
+- LLM step runs synchronously inside the request.
+- Live LLM test is opt-in (`RUN_LIVE_LLM=1`); not part of default CI.
+
+### Next steps
+
+1. Bounded retry for transient provider errors (rate limit/timeout).
+2. Decide whether to expose `LLM_ENABLED` per request vs. environment.
+3. Consider background execution for long LLM calls.
+
+---
+
+## 2026-10-09 — Deterministic Helpdesk slice: tests, migrations, auth, docs
+
+**Goal.** Reach a verifiable end-to-end deterministic Helpdesk slice: report →
+retrieval → evidence → PostgreSQL persistence → history, with automated tests,
+managed migrations, API security, and documentation. LLM integration deferred by
+team decision.
+
+### Audit findings (baseline, before changes)
+
+- Branch `feat/helpdesk-state-machine`; HEAD `51872ab`; `src/main.py` modified
+  (PostgreSQL integration, uncommitted); `src/db/models.py`, `src/llm/`,
+  `src/main.py.bak` untracked.
+- Working: datasets valid, adapter search, PostgreSQL table `tasks` with 2 rows.
+- Missing: any tests, Alembic, API auth, `.env.example`, implementation docs.
+- `requirements.txt` did not list `openai` or `python-dotenv` even though both
+  were installed.
+
+### Changes
+
+| Area | Files | Notes |
+|---|---|---|
+| Dependencies | `requirements.txt` | added `python-dotenv`, `openai` |
+| Env template | `.env.example` (new) | placeholders only; no real secrets |
+| Ignore rules | `.gitignore` | ignore `.env.*`, keep `.env.example`, ignore `*.bak` |
+| Tests | `tests/conftest.py`, `tests/test_data_adapter.py`, `tests/test_workflow.py`, `tests/test_api.py`, `tests/test_persistence.py`, `pytest.ini` | 29 tests |
+| Migrations | `alembic.ini`, `alembic/env.py`, `alembic/script.py.mako`, `alembic/versions/0001_create_tasks.py` | baseline `tasks` schema |
+| Auth | `src/auth.py` (new), `src/main.py` | `X-API-Key` dependency; removed unused import |
+| Docs | `docs/API.md`, `docs/DATABASE.md`, `docs/TESTING.md`, `docs/DEVELOPMENT_LOG.md` (new), `docs/ARCHITECTURE.md` (appended) | implementation docs |
+
+### Commands and actual results
+
+```text
+python check_data.py
+  → PASS: relasi data valid (4/18/25/12 records)
+
+python -m compileall -q src
+  → exit 0
+
+pytest
+  → 29 passed in 2.52s
+
+alembic stamp head          # baseline existing dev table
+  → Running stamp_revision -> 0001_create_tasks
+alembic check
+  → No new upgrade operations detected.
+DATABASE_URL=<dinusnexus_test> alembic upgrade head
+  → Running upgrade -> 0001_create_tasks, create tasks table
+  → tables: alembic_version, tasks
+
+python (live LLM, one-off)
+  → model gpt-4o-mini, output DINUSNEXUS_LLM_OK
+```
+
+### Notes and decisions
+
+- The test suite runs against an isolated `<db>_test` database; it never touches
+  demo data. `docker exec ... CREATE DATABASE dinusnexus_test` was run once.
+- Baseline migration was applied to the existing dev database with
+  `alembic stamp head` (no table recreation, no data loss, no volume reset).
+- A local `DINUSNEXUS_API_KEY` was appended to `.env` (value not printed, file
+  gitignored). Protected endpoints fail closed with `500` if it is unset.
+- The search adapter's keyword approach can produce incidental matches (e.g.
+  `tidak` is not a stop word). Documented as a limitation; behavior unchanged.
+
+### Open issues
+
+- LLM (`analyze_evidence`) not wired into LangGraph — deferred.
+- `Base.metadata.create_all()` still runs at API startup; remove at deployment.
+- No automated test for Alembic upgrade.
+- `waiting_for_approval` / `cancelled` states not implemented.
+
+### Next steps
+
+1. Wire `analyze_evidence` with structured-output validation + deterministic
+   fallback; keep the deterministic path default and free in tests.
+2. Normalize `task_runs` / `execution_steps` if run history per attempt is needed.
+3. Replace startup `create_all` with `alembic upgrade head` in run/deploy flow.
+4. Token usage capture for the LLM step.
