@@ -53,6 +53,7 @@ Satu workflow operasional harus berjalan dari input sampai output melalui UI yan
 - [`docs/MCP_PLUGINS.md`](docs/MCP_PLUGINS.md): plugin OpenCode dan tools development.
 - [`docs/DECISIONS.md`](docs/DECISIONS.md): keputusan final versus hal yang belum ditentukan.
 - [`docs/UI_COMPONENTS.md`](docs/UI_COMPONENTS.md): dokumentasi komponen UI DinusNexus.
+- [`docs/CHATBOT_FEATURE.md`](docs/CHATBOT_FEATURE.md): dokumentasi fitur chatbot AI.
 
 ## Cara menggunakan dokumen ini
 

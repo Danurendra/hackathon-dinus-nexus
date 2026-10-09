@@ -14,9 +14,12 @@ export function Sidebar() {
   return (
     <aside className="sticky top-0 hidden h-screen w-64 shrink-0 overflow-y-auto border-r border-slate-800 bg-slate-900 text-slate-300 md:block">
       <div className="p-4">
-        <Link href="/" className="mb-8 flex items-center gap-2">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500 text-sm font-bold text-white">DN</span>
-          <span className="text-lg font-semibold text-white">DinusNexus</span>
+        <Link href="/" className="mb-8 flex items-center gap-3 rounded-xl px-2 py-1.5 transition-colors hover:bg-slate-800">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-500 text-sm font-bold text-white shadow-lg shadow-indigo-950/40">DN</span>
+          <span>
+            <span className="block text-lg font-semibold leading-5 text-white">DinusNexus</span>
+            <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-slate-500">Campus intelligence</span>
+          </span>
         </Link>
 
         <p className="mb-3 px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Workspace</p>
@@ -31,7 +34,7 @@ export function Sidebar() {
                 aria-current={active ? 'page' : undefined}
                 className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
                   active
-                    ? 'bg-indigo-500/15 text-indigo-200'
+                    ? 'bg-indigo-500/15 text-indigo-100 shadow-sm shadow-indigo-950/20 ring-1 ring-inset ring-indigo-400/20'
                     : 'text-slate-300 hover:bg-slate-800 hover:text-white'
                 }`}
               >

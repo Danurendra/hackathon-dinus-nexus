@@ -1,182 +1,175 @@
 'use client';
 
-import { useState } from 'react';
-import { Card } from '../ui/Card';
-import { Badge } from '../ui/Badge';
-import { Button } from '../ui/Button';
-import { 
-  MapPin, 
-  Building, 
-  Wifi, 
-  Zap,
-  AlertTriangle,
-  CheckCircle,
-  Clock,
-  X
-} from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { MapPin, Sun, Moon, Layers, Calendar } from 'lucide-react';
+import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
+import { Card } from '@/components/ui/Card';
+import { IsometricCanvas } from './IsometricCanvas';
+import { BuildingMesh } from './BuildingMesh';
+import { BuildingPins } from './BuildingPins';
+import { BuildingDetailPanel } from './BuildingDetailPanel';
+import { LayerToggle, type LayerType } from './LayerToggle';
+import { LayerOverlay } from './LayerOverlay';
+import { ScenarioSimulator } from './ScenarioSimulator';
+import { campusBuildings } from '@/data/campusGeometry';
+import { getPalette, type ColorMode } from '@/lib/campusPalette';
 
-interface CampusBuilding {
-  id: string;
-  name: string;
-  x: number;
-  y: number;
-  status: 'operational' | 'warning' | 'critical' | 'maintenance';
-  devices: number;
-  incidents: number;
-}
+export function CampusMap({ className = '' }: { className?: string }) {
+  const [colorMode, setColorMode] = useState<ColorMode>('day');
+  const [selectedBuildingId, setSelectedBuildingId] = useState<string>();
+  const [activeLayers, setActiveLayers] = useState<Set<LayerType>>(new Set());
+  const [showSimulator, setShowSimulator] = useState(false);
 
-interface CampusMapProps {
-  buildings: CampusBuilding[];
-  className?: string;
-}
+  const palette = useMemo(() => getPalette(colorMode), [colorMode]);
 
-export function CampusMap({ buildings, className = '' }: CampusMapProps) {
-  const [selectedBuilding, setSelectedBuilding] = useState<CampusBuilding | null>(null);
-  const [viewMode, setViewMode] = useState<'overview' | 'devices'>('overview');
-
-  const getStatusColor = (status: CampusBuilding['status']) => {
-    switch (status) {
-      case 'operational': return 'text-green-500';
-      case 'warning': return 'text-yellow-500';
-      case 'critical': return 'text-red-500';
-      case 'maintenance': return 'text-blue-500';
-      default: return 'text-gray-500';
-    }
+  const handleToggleLayer = (layer: LayerType) => {
+    setActiveLayers((prev) => {
+      const next = new Set(prev);
+      if (next.has(layer)) {
+        next.delete(layer);
+      } else {
+        next.add(layer);
+      }
+      return next;
+    });
   };
 
-  const getStatusIcon = (status: CampusBuilding['status']) => {
-    switch (status) {
-      case 'operational': return <CheckCircle className="w-4 h-4" />;
-      case 'warning': return <AlertTriangle className="w-4 h-4" />;
-      case 'critical': return <AlertTriangle className="w-4 h-4" />;
-      case 'maintenance': return <Clock className="w-4 h-4" />;
-      default: return <Building className="w-4 h-4" />;
+  const handleCreateTask = async (payload: Record<string, unknown>) => {
+    try {
+      const response = await fetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (response.ok) {
+        alert('Task created successfully');
+      } else {
+        alert('Failed to create task');
+      }
+    } catch (error) {
+      console.error('Error creating task:', error);
+      alert('Error creating task');
     }
   };
 
   return (
-    <Card className={className}>
-      <div className="p-4">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="font-semibold text-gray-900">Campus Map</h3>
-          <div className="flex space-x-2">
-            <Button 
-              variant={viewMode === 'overview' ? 'primary' : 'outline'} 
-              size="sm"
-              onClick={() => setViewMode('overview')}
-            >
-              Overview
-            </Button>
-            <Button 
-              variant={viewMode === 'devices' ? 'primary' : 'outline'} 
-              size="sm"
-              onClick={() => setViewMode('devices')}
-            >
-              Devices
-            </Button>
+    <Card className={`overflow-hidden ${className}`}>
+      {/* Header */}
+      <div className="flex flex-col justify-between gap-3 border-b border-border px-5 py-4 sm:flex-row sm:items-center">
+        <div>
+          <div className="flex items-center gap-2">
+            <MapPin className="h-5 w-5 text-primary" />
+            <h2 className="text-lg font-semibold text-textPrimary">Campus Twin</h2>
+            <Badge variant="info">OSM GEODATA</Badge>
+            <Badge variant="warning">SYNTHETIC OPS DATA</Badge>
           </div>
+          <p className="mt-1 text-sm text-textSecondary">
+            Digital twin interaktif dengan geometri nyata dari OpenStreetMap
+          </p>
         </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setColorMode(colorMode === 'day' ? 'ops' : 'day')}
+          >
+            {colorMode === 'day' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+            <span className="ml-2">{colorMode === 'day' ? 'Ops Mode' : 'Day Mode'}</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowSimulator(!showSimulator)}
+          >
+            <Calendar className="h-4 w-4" />
+            <span className="ml-2">Scenario</span>
+          </Button>
+        </div>
+      </div>
 
-        {/* Map Container */}
-        <div className="relative bg-gray-50 rounded-lg border border-gray-200 h-96 overflow-hidden">
-          {/* Campus Grid */}
-          <div className="absolute inset-0 opacity-10">
-            {[...Array(10)].map((_, i) => (
-              <div key={`h-${i}`} className="absolute w-full h-px bg-gray-400" style={{ top: `${i * 10}%` }}></div>
-            ))}
-            {[...Array(10)].map((_, i) => (
-              <div key={`v-${i}`} className="absolute h-full w-px bg-gray-400" style={{ left: `${i * 10}%` }}></div>
-            ))}
-          </div>
+      {/* Main canvas area */}
+      <div className="relative min-h-[600px] overflow-hidden" style={{ backgroundColor: palette.sky }}>
+        {/* Isometric canvas */}
+        <IsometricCanvas
+          colorMode={colorMode}
+          selectedBuildingId={selectedBuildingId}
+          onSelectBuilding={setSelectedBuildingId}
+        >
+          {/* Layer overlay */}
+          <LayerOverlay colorMode={colorMode} activeLayers={activeLayers} />
 
           {/* Buildings */}
-          {buildings.map(building => (
-            <div
+          {campusBuildings.map((building) => (
+            <BuildingMesh
               key={building.id}
-              className={`absolute cursor-pointer transform -translate-x-1/2 -translate-y-1/2 transition-all duration-200 ${
-                selectedBuilding?.id === building.id ? 'scale-110 z-10' : 'hover:scale-105'
-              }`}
-              style={{ left: `${building.x}%`, top: `${building.y}%` }}
-              onClick={() => setSelectedBuilding(building)}
-            >
-              <div className="flex flex-col items-center">
-                <div className={`p-2 rounded-full ${getStatusColor(building.status)} bg-white shadow-lg`}>
-                  {getStatusIcon(building.status)}
-                </div>
-                <div className="mt-1 text-xs font-medium text-gray-700 text-center max-w-[80px] truncate">
-                  {building.name}
-                </div>
-                <div className="mt-1 flex items-center">
-                  <Badge variant="secondary" className="text-xs">
-                    {building.devices} devices
-                  </Badge>
-                </div>
-              </div>
-            </div>
+              building={building}
+              colorMode={colorMode}
+              isSelected={selectedBuildingId === building.id}
+              onClick={() => setSelectedBuildingId(building.id)}
+            />
           ))}
+        </IsometricCanvas>
 
-          {/* Selected Building Info */}
-          {selectedBuilding && (
-            <div className="absolute bottom-4 left-4 right-4 bg-white rounded-lg shadow-lg p-4 border border-gray-200">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h4 className="font-semibold text-gray-900">{selectedBuilding.name}</h4>
-                  <div className="flex items-center mt-1">
-                    <Badge variant={selectedBuilding.status === 'operational' ? 'success' : 
-                                selectedBuilding.status === 'warning' ? 'warning' : 
-                                selectedBuilding.status === 'critical' ? 'error' : 'info'}>
-                      {selectedBuilding.status.charAt(0).toUpperCase() + selectedBuilding.status.slice(1)}
-                    </Badge>
-                    <span className="ml-2 text-sm text-gray-500">
-                      {selectedBuilding.incidents} incidents
-                    </span>
-                  </div>
-                </div>
-                <Button 
-                  variant="ghost" 
-                  size="sm"
-                  onClick={() => setSelectedBuilding(null)}
-                >
-                  <X className="w-4 h-4" />
-                </Button>
-              </div>
-              <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
-                <div className="flex items-center">
-                  <Wifi className="w-4 h-4 text-gray-500 mr-1" />
-                  <span>{selectedBuilding.devices} devices</span>
-                </div>
-                <div className="flex items-center">
-                  <AlertTriangle className="w-4 h-4 text-gray-500 mr-1" />
-                  <span>{selectedBuilding.incidents} incidents</span>
-                </div>
-                <div className="flex items-center">
-                  <Zap className="w-4 h-4 text-gray-500 mr-1" />
-                  <span>Operational</span>
-                </div>
-              </div>
-            </div>
-          )}
+        {/* Building pins (HTML overlay) */}
+        <BuildingPins
+          colorMode={colorMode}
+          selectedBuildingId={selectedBuildingId}
+          onSelectBuilding={setSelectedBuildingId}
+        />
+
+        {/* Side panels */}
+        <div className="absolute top-4 right-4 z-30 space-y-3">
+          <LayerToggle
+            colorMode={colorMode}
+            activeLayers={activeLayers}
+            onToggleLayer={handleToggleLayer}
+          />
         </div>
 
-        {/* Legend */}
-        <div className="mt-4 flex flex-wrap gap-4 text-sm">
-          <div className="flex items-center">
-            <div className="w-3 h-3 rounded-full bg-green-500 mr-2"></div>
-            <span>Operational</span>
+        {/* Building detail panel */}
+        {selectedBuildingId && (
+          <div className="absolute bottom-4 right-4 z-30">
+            <BuildingDetailPanel
+              buildingId={selectedBuildingId}
+              colorMode={colorMode}
+              onClose={() => setSelectedBuildingId(undefined)}
+            />
           </div>
-          <div className="flex items-center">
-            <div className="w-3 h-3 rounded-full bg-yellow-500 mr-2"></div>
-            <span>Warning</span>
+        )}
+
+        {/* Scenario simulator */}
+        {showSimulator && (
+          <div className="absolute bottom-4 left-4 right-4 z-30 flex justify-center">
+            <ScenarioSimulator
+              colorMode={colorMode}
+              onCreateTask={handleCreateTask}
+            />
           </div>
-          <div className="flex items-center">
-            <div className="w-3 h-3 rounded-full bg-red-500 mr-2"></div>
-            <span>Critical</span>
-          </div>
-          <div className="flex items-center">
-            <div className="w-3 h-3 rounded-full bg-blue-500 mr-2"></div>
-            <span>Maintenance</span>
-          </div>
-        </div>
+        )}
+      </div>
+
+      {/* Footer legend */}
+      <div className="flex flex-wrap gap-x-5 gap-y-2 border-t border-border px-5 py-3 text-xs text-textSecondary">
+        <span className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: palette.success }} />
+          Operational
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: palette.warning }} />
+          Attention
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: palette.critical }} />
+          Critical
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: palette.maintenance }} />
+          Maintenance
+        </span>
+        <span className="ml-auto text-[10px]">
+          © OpenStreetMap contributors | Data: ODbL License
+        </span>
       </div>
     </Card>
   );

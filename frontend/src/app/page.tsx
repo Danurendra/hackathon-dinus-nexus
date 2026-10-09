@@ -10,12 +10,16 @@ import {
   FileSearch,
   RefreshCw,
   Wifi,
+  MessageSquare,
+  Send,
+  Trash2,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { ChatInput } from '@/components/chat/ChatInput';
 import { ExecutionTimeline } from '@/components/workflow/ExecutionTimeline';
+import { CampusMap } from '@/components/campus-twin/CampusMap';
 
 type TaskStatus = 'queued' | 'running' | 'completed' | 'failed';
 
@@ -45,6 +49,30 @@ interface Task {
   error?: { code: string; message: string };
 }
 
+// Conversation types
+interface Message {
+  message_id: string;
+  conversation_id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  created_at: string;
+  metadata?: {
+    tokens_used?: { input: number; output: number };
+    model?: string;
+    sources?: string[];
+    intent?: string;
+  };
+}
+
+interface Conversation {
+  conversation_id: string;
+  worker: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  messages: Message[];
+}
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8000';
 
 function formatDate(value: string) {
@@ -64,6 +92,8 @@ function statusVariant(status: TaskStatus) {
 export default function HomePage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string>();
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [selectedConversationId, setSelectedConversationId] = useState<string>();
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string>();
@@ -73,14 +103,28 @@ export default function HomePage() {
     [selectedTaskId, tasks],
   );
 
+  const selectedConversation = useMemo(
+    () => conversations.find((conv) => conv.conversation_id === selectedConversationId) ?? conversations[0],
+    [selectedConversationId, conversations],
+  );
+
   const loadHistory = useCallback(async () => {
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/history`);
-      if (!response.ok) throw new Error('History task tidak dapat dimuat.');
-      const data = (await response.json()) as { items: Task[] };
-      setTasks(data.items);
-      setSelectedTaskId((current) => current ?? data.items[0]?.task_id);
+      // Load tasks
+      const taskResponse = await fetch(`${API_BASE_URL}/api/history`);
+      if (!taskResponse.ok) throw new Error('History task tidak dapat dimuat.');
+      const taskData = (await taskResponse.json()) as { items: Task[] };
+      setTasks(taskData.items);
+      setSelectedTaskId((current) => current ?? taskData.items[0]?.task_id);
+
+      // Load conversations
+      const convResponse = await fetch(`${API_BASE_URL}/api/conversations`);
+      if (!convResponse.ok) throw new Error('History percakapan tidak dapat dimuat.');
+      const convData = (await convResponse.json()) as Conversation[];
+      setConversations(convData);
+      setSelectedConversationId((current) => current ?? convData[0]?.conversation_id);
+      
       setError(undefined);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Gagal memuat history.');
@@ -126,25 +170,95 @@ export default function HomePage() {
     }
   };
 
+  const handleSendMessage = async (message: string) => {
+    if (!selectedConversationId || !message.trim()) return;
+    
+    setIsSubmitting(true);
+    setError(undefined);
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/conversations/${selectedConversationId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: message,
+        }),
+      });
+      
+      if (!response.ok) throw new Error('Pesan gagal dikirim.');
+      
+      const newMessage = (await response.json()) as Message;
+      
+      // Update conversation with new message
+      setConversations(prev => prev.map(conv => 
+        conv.conversation_id === selectedConversationId
+          ? {
+              ...conv,
+              messages: [...conv.messages, newMessage],
+              updated_at: newMessage.created_at
+            }
+          : conv
+      ));
+      
+    } catch (sendError) {
+      setError(sendError instanceof Error ? sendError.message : 'Gagal mengirim pesan.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleCreateConversation = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/conversations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          worker: 'it_helpdesk',
+          title: 'Percakapan baru',
+        }),
+      });
+      
+      if (!response.ok) throw new Error('Percakapan gagal dibuat.');
+      
+      const newConversation = (await response.json()) as Conversation;
+      
+      setConversations(prev => [newConversation, ...prev]);
+      setSelectedConversationId(newConversation.conversation_id);
+      
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : 'Gagal membuat percakapan.');
+    }
+  };
+
   const completedCount = tasks.filter((task) => task.status === 'completed').length;
   const activeCount = tasks.filter((task) => task.status === 'running' || task.status === 'queued').length;
   const failedCount = tasks.filter((task) => task.status === 'failed').length;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
+    <div className="space-y-7">
+      <div className="relative overflow-hidden rounded-2xl border border-indigo-100 bg-gradient-to-br from-white via-white to-indigo-50/80 px-5 py-6 shadow-sm md:px-7 md:py-7">
+        <div className="pointer-events-none absolute -right-16 -top-24 h-64 w-64 rounded-full bg-indigo-100/60 blur-3xl" />
+        <div className="relative flex flex-col justify-between gap-5 md:flex-row md:items-center">
         <div>
-          <div className="mb-2 flex items-center gap-2">
+          <div className="mb-3 flex items-center gap-2">
             <Badge variant="primary">PROTOTYPE</Badge>
             <Badge variant="info">IT Helpdesk Worker</Badge>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Helpdesk operations workspace</h1>
-          <p className="text-gray-600">Buat laporan, telusuri evidence sintetis, dan pantau hasil workflow.</p>
+          <p className="mb-1 text-xs font-semibold uppercase tracking-[0.16em] text-indigo-600">Command Center</p>
+          <h1 className="text-2xl font-bold tracking-tight text-gray-900 md:text-3xl">Helpdesk operations workspace</h1>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-gray-600">Buat laporan, telusuri evidence sintetis, dan pantau hasil workflow dari satu workspace operasional.</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => void loadHistory()} disabled={isLoading}>
-          <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-          Refresh history
-        </Button>
+        <div className="relative flex shrink-0 flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={() => void loadHistory()} disabled={isLoading}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            Refresh history
+          </Button>
+          <Button variant="primary" size="sm" onClick={handleCreateConversation}>
+            <MessageSquare className="mr-2 h-4 w-4" />
+            Percakapan Baru
+          </Button>
+        </div>
+        </div>
       </div>
 
       {error && (
@@ -154,7 +268,9 @@ export default function HomePage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+      <CampusMap />
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
         <Metric icon={<Activity className="h-5 w-5 text-blue-600" />} label="Total task" value={tasks.length} />
         <Metric icon={<CheckCircle className="h-5 w-5 text-green-600" />} label="Selesai" value={completedCount} />
         <Metric icon={<Clock3 className="h-5 w-5 text-yellow-600" />} label="Aktif" value={activeCount} />
@@ -163,7 +279,7 @@ export default function HomePage() {
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.8fr)]">
         <div className="space-y-6">
-          <Card className="p-4">
+          <Card className="p-5">
             <div className="mb-4 flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">Buat laporan baru</h2>
@@ -175,7 +291,7 @@ export default function HomePage() {
             <p className="mt-3 text-xs text-gray-500">Data perangkat dan insiden pada prototipe ini berlabel SYNTHETIC.</p>
           </Card>
 
-          <Card className="p-4">
+          <Card className="p-5">
             <div className="mb-4 flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">Task & history</h2>
@@ -211,27 +327,89 @@ export default function HomePage() {
         </div>
 
         <div className="space-y-6">
-          {selectedTask ? (
-            <>
-              <ExecutionTimeline
-                steps={selectedTask.steps.map((step) => ({
-                  id: step.step_id,
-                  name: step.name,
-                  status: step.status,
-                  sourceIds: step.source_ids,
-                }))}
+          <Card className="p-5">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Percakapan</h2>
+                <p className="text-sm text-gray-500">Berdasarkan AI assistant untuk bantuan IT Helpdesk</p>
+              </div>
+              <Badge variant="secondary">{conversations.length} percakapan</Badge>
+            </div>
+            {isLoading && conversations.length === 0 ? (
+              <div className="flex items-center gap-2 py-8 text-sm text-gray-500"><RefreshCw className="h-4 w-4 animate-spin" /> Memuat percakapan...</div>
+            ) : conversations.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500">Belum ada percakapan. Buat percakapan baru untuk mulai berinteraksi dengan AI.</div>
+            ) : (
+              <div className="space-y-2">
+                {conversations.map((conv) => (
+                  <button
+                    key={conv.conversation_id}
+                    type="button"
+                    onClick={() => setSelectedConversationId(conv.conversation_id)}
+                    className={`w-full rounded-lg border p-3 text-left transition ${selectedConversation?.conversation_id === conv.conversation_id ? 'border-cyan-400 bg-cyan-50' : 'border-gray-200 hover:border-gray-300'}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-gray-900">{conv.title}</p>
+                        <p className="mt-1 text-xs text-gray-500">{formatDate(conv.updated_at)} · {conv.messages.length} pesan</p>
+                      </div>
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          // Delete conversation logic would go here
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4 text-gray-500" />
+                      </Button>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </Card>
+
+          {selectedConversation ? (
+            <Card className="p-4">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-gray-900">AI Assistant</h2>
+                <Badge variant="info">IT Helpdesk</Badge>
+              </div>
+              
+              <div className="space-y-3 max-h-96 overflow-y-auto mb-4">
+                {selectedConversation.messages.map((msg) => (
+                  <div 
+                    key={msg.message_id} 
+                    className={`p-3 rounded-lg ${msg.role === 'user' ? 'bg-blue-50 ml-8' : 'bg-gray-50 mr-8'}`}
+                  >
+                    <div className="flex items-start gap-2">
+                      <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center ${msg.role === 'user' ? 'bg-blue-500 text-white' : 'bg-gray-300 text-gray-700'}`}>
+                        {msg.role === 'user' ? 'U' : 'AI'}
+                      </div>
+                      <div>
+                        <p className="text-sm">{msg.content}</p>
+                        {msg.metadata?.tokens_used && (
+                          <p className="text-xs text-gray-500 mt-1">
+                            {msg.metadata.tokens_used.input} tokens input, {msg.metadata.tokens_used.output} tokens output
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              
+              <ChatInput 
+                onSubmit={handleSendMessage} 
+                isLoading={isSubmitting} 
+                placeholder="Tulis pesan ke AI assistant..."
               />
-              {selectedTask.result ? <ResultCard task={selectedTask} /> : selectedTask.error ? (
-                <Card className="border-red-200 p-4">
-                  <h2 className="font-semibold text-red-800">Workflow gagal</h2>
-                  <p className="mt-2 text-sm text-red-700">{selectedTask.error.message}</p>
-                </Card>
-              ) : null}
-            </>
+            </Card>
           ) : (
             <Card className="p-8 text-center text-sm text-gray-500">
-              <FileSearch className="mx-auto mb-3 h-8 w-8 text-gray-400" />
-              Pilih task untuk melihat execution inspector.
+              <MessageSquare className="mx-auto mb-3 h-8 w-8 text-gray-400" />
+              Pilih atau buat percakapan untuk berinteraksi dengan AI.
             </Card>
           )}
         </div>

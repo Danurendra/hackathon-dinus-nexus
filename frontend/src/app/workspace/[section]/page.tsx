@@ -5,6 +5,7 @@ import { ArrowLeft, Bot, CheckCircle2, Database, Info } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
+import { EventPlanningWorkspace } from '@/components/operations/EventPlanningWorkspace';
 
 const sections: Record<string, { title: string; description: string; status: 'available' | 'planned' }> = {
   operations: {
@@ -45,6 +46,8 @@ const sections: Record<string, { title: string; description: string; status: 'av
 };
 
 export default function WorkspaceSectionPage({ params }: { params: { section: string } }) {
+  if (params.section === 'operations') return <EventPlanningWorkspace />;
+
   const section = sections[params.section] ?? {
     title: 'Workspace',
     description: 'This workspace section is not available.',
