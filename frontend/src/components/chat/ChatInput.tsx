@@ -15,13 +15,15 @@ import {
 } from 'lucide-react';
 
 interface ChatInputProps {
-  onSubmit: (message: string, attachments?: File[]) => void;
+  onSubmit: (message: string, attachments?: File[], metadata?: { location?: string; deviceType?: string }) => void;
   isLoading?: boolean;
   placeholder?: string;
 }
 
 export function ChatInput({ onSubmit, isLoading = false, placeholder = "Ketik pesan atau deskripsi insiden..." }: ChatInputProps) {
   const [message, setMessage] = useState('');
+  const [location, setLocation] = useState('');
+  const [deviceType, setDeviceType] = useState('');
   const [attachments, setAttachments] = useState<File[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -29,7 +31,7 @@ export function ChatInput({ onSubmit, isLoading = false, placeholder = "Ketik pe
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (message.trim() || attachments.length > 0) {
-      onSubmit(message, attachments);
+      onSubmit(message, attachments, { location: location.trim(), deviceType: deviceType.trim() });
       setMessage('');
       setAttachments([]);
     }
@@ -148,6 +150,8 @@ export function ChatInput({ onSubmit, isLoading = false, placeholder = "Ketik pe
             label="Lokasi (opsional)"
             placeholder="Gedung A, Lantai 2"
             className="text-sm"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
           />
         </div>
         <div className="flex-1 min-w-[200px]">
@@ -155,6 +159,8 @@ export function ChatInput({ onSubmit, isLoading = false, placeholder = "Ketik pe
             label="Jenis Perangkat (opsional)"
             placeholder="Wi-Fi, LAN, Server"
             className="text-sm"
+            value={deviceType}
+            onChange={(e) => setDeviceType(e.target.value)}
           />
         </div>
       </div>
