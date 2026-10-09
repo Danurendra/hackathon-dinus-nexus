@@ -111,6 +111,7 @@ Semua data yang digunakan oleh chatbot berlabel `SYNTHETIC` dan tidak merepresen
 ### Provider dan fallback
 
 Provider utama memakai `LLM_BASE_URL`, `LLM_API_KEY`, dan `LLM_MODEL`.
+Set `LLM_PROVIDER=openai` untuk menjadikan OpenAI provider utama pada chat agent.
 Jika `LLM_FALLBACK_ENABLED=true` dan provider utama gagal, backend mencoba
 OpenAI menggunakan `OPENAI_API_KEY`, `OPENAI_BASE_URL`, dan `OPENAI_MODEL`.
 Model fallback default adalah `gpt-5-nano` untuk menjaga biaya tetap rendah.

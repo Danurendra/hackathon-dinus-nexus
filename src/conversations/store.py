@@ -16,8 +16,13 @@ def create_conversation(conversation: Conversation) -> Conversation:
     return conversation
 
 def get_conversation(conversation_id: str) -> Optional[Conversation]:
-    """Get a conversation by ID"""
-    return _conversations.get(conversation_id)
+    """Get a conversation by ID with its messages"""
+    conv = _conversations.get(conversation_id)
+    if conv:
+        conv_copy = conv.model_copy()
+        conv_copy.messages = _message_store.get(conversation_id, [])
+        return conv_copy
+    return None
 
 def update_conversation(conversation_id: str, updated_fields: Dict[str, Any]) -> Optional[Conversation]:
     """Update conversation fields"""
@@ -45,7 +50,7 @@ def add_message(message: Message) -> Message:
     _message_store[message.conversation_id].append(message)
     
     # Update conversation's updated_at
-    conv = get_conversation(message.conversation_id)
+    conv = _conversations.get(message.conversation_id)
     if conv:
         update_conversation(message.conversation_id, {"updated_at": datetime.now()})
     
@@ -56,5 +61,10 @@ def get_messages(conversation_id: str) -> List[Message]:
     return _message_store.get(conversation_id, [])
 
 def list_conversations() -> List[Conversation]:
-    """List all conversations"""
-    return list(_conversations.values())
+    """List all conversations with their messages"""
+    result = []
+    for conv in _conversations.values():
+        conv_copy = conv.model_copy()
+        conv_copy.messages = _message_store.get(conv.conversation_id, [])
+        result.append(conv_copy)
+    return result

@@ -113,11 +113,11 @@ function statusIcon(status: TaskStatus) {
   return <Clock3 className="h-4 w-4 text-slate-500" />;
 }
 
-export function TasksWorkspace() {
+export function TasksWorkspace({ initialStatusFilter }: { initialStatusFilter?: 'all' | TaskStatus }) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string>();
   const [query, setQuery] = useState('');
-  const [status, setStatus] = useState<'all' | TaskStatus>('all');
+  const [status, setStatus] = useState<'all' | TaskStatus>(initialStatusFilter ?? 'all');
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isDeciding, setIsDeciding] = useState(false);

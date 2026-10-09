@@ -19,6 +19,7 @@ import {
   getScenarioMetrics,
   type ScenarioInput,
 } from '@/lib/scenarioModel';
+import { apiFetch } from '@/lib/api';
 import { panelStyle, badgeStyle, CampusButton } from './CampusTheme';
 
 export function CampusMap({ className = '' }: { className?: string }) {
@@ -28,6 +29,7 @@ export function CampusMap({ className = '' }: { className?: string }) {
   const [showSimulator, setShowSimulator] = useState(false);
   const [scenarioInput, setScenarioInput] = useState<ScenarioInput>(defaultGraduationScenario);
   const [scenarioActive, setScenarioActive] = useState(false);
+  const [taskNotice, setTaskNotice] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const palette = useMemo(() => getPalette(colorMode), [colorMode]);
 
@@ -66,19 +68,26 @@ export function CampusMap({ className = '' }: { className?: string }) {
 
   const handleCreateTask = async (payload: Record<string, unknown>) => {
     try {
-      const response = await fetch('/api/tasks', {
+      const response = await apiFetch('/api/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
       if (response.ok) {
-        alert('Task created successfully');
+        setTaskNotice({ message: 'Task berhasil dibuat di backend dari skenario.', type: 'success' });
+        setTimeout(() => setTaskNotice(null), 4000);
       } else {
-        alert('Failed to create task');
+        const errorData = await response.json().catch(() => null);
+        const msg = errorData?.detail || 'Gagal membuat task di backend.';
+        setTaskNotice({ message: typeof msg === 'string' ? msg : 'Gagal membuat task.', type: 'error' });
+        setTimeout(() => setTaskNotice(null), 5000);
       }
     } catch (error) {
-      console.error('Error creating task:', error);
-      alert('Error creating task');
+      setTaskNotice({
+        message: error instanceof Error ? error.message : 'Backend tidak dapat dihubungi.',
+        type: 'error',
+      });
+      setTimeout(() => setTaskNotice(null), 5000);
     }
   };
 
@@ -120,6 +129,17 @@ export function CampusMap({ className = '' }: { className?: string }) {
           </CampusButton>
         </div>
       </div>
+
+      {taskNotice && (
+        <div className={`px-5 py-2.5 text-xs font-medium border-b flex items-center justify-between ${
+          taskNotice.type === 'success'
+            ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+            : 'bg-red-50 text-red-800 border-red-200'
+        }`}>
+          <span>{taskNotice.message}</span>
+          <button type="button" onClick={() => setTaskNotice(null)} className="text-gray-500 hover:text-gray-700 ml-4">✕</button>
+        </div>
+      )}
 
       {/* Main canvas area */}
       <div className="relative min-h-[600px] overflow-hidden" style={{ backgroundColor: palette.sky }}>

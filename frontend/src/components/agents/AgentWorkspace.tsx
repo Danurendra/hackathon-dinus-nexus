@@ -15,6 +15,7 @@ interface Agent {
   name: string;
   role: string;
   description: string;
+  examplePrompt: string;
   capabilities: string[];
   available: boolean;
 }
@@ -40,6 +41,7 @@ const agents: Agent[] = [
     name: 'IT Helpdesk Agent',
     role: 'Incident investigation',
     description: 'Menganalisis laporan gangguan IT, mencari evidence, dan menyusun rekomendasi tindak lanjut.',
+    examplePrompt: 'Wi-Fi di Gedung Akademik tidak terhubung',
     capabilities: ['Incident triage', 'Evidence lookup', 'Root-cause hints', 'Recommendations'],
     available: true,
   },
@@ -48,6 +50,7 @@ const agents: Agent[] = [
     name: 'Network Operations Agent',
     role: 'Network capacity',
     description: 'Menganalisis kapasitas jaringan, deteksi anomali, dan rekomendasi optimasi infrastruktur.',
+    examplePrompt: 'Analisis anomali jaringan dan perangkat yang perlu diperiksa',
     capabilities: ['Capacity analysis', 'Anomaly detection', 'Network health', 'Recommendations'],
     available: true,
   },
@@ -56,6 +59,7 @@ const agents: Agent[] = [
     name: 'Campus Operations Agent',
     role: 'Event operations',
     description: 'Koordinasi event kampus, analisis kapasitas gedung, dan perencanaan sumber daya.',
+    examplePrompt: 'Bantu rencanakan kapasitas gedung untuk seminar kampus',
     capabilities: ['Event planning', 'Resource coordination', 'Capacity analysis', 'Recommendations'],
     available: true,
   },
@@ -120,7 +124,16 @@ export function AgentWorkspace() {
         headers: apiHeaders,
         body: JSON.stringify({ content, context: { worker: selectedAgentId } }),
       });
-      if (!response.ok) throw new Error('Agent gagal memberikan respons.');
+      if (!response.ok) {
+        let detail = 'Agent gagal memberikan respons.';
+        try {
+          const errorBody = (await response.json()) as { detail?: string };
+          if (errorBody.detail) detail = errorBody.detail;
+        } catch {
+          // Keep the safe generic message when the server returns no JSON body.
+        }
+        throw new Error(detail);
+      }
       const assistantMessage = (await response.json()) as AgentMessage;
       setConversation((current) => current ? { ...current, messages: [...current.messages, assistantMessage] } : current);
       setActivity('completed');
@@ -163,7 +176,7 @@ export function AgentWorkspace() {
           <div className="grid gap-5 p-5 xl:grid-cols-[minmax(0,1fr)_220px]">
             <div className="flex min-h-[470px] flex-col">
               <div className="flex-1 space-y-3 overflow-y-auto">
-                {!conversation?.messages.length && <div className="rounded-xl border border-dashed border-indigo-200 bg-indigo-50/50 p-5 text-sm text-textSecondary"><div className="mb-2 flex items-center gap-2 font-semibold text-indigo-700"><Sparkles className="h-4 w-4" /> Agent siap membantu</div>Kirim laporan atau pertanyaan seperti “Wi-Fi di Gedung Akademik tidak terhubung”. Agent akan mencari evidence dan menjelaskan hasilnya.</div>}
+                {!conversation?.messages.length && <div className="rounded-xl border border-dashed border-indigo-200 bg-indigo-50/50 p-5 text-sm text-textSecondary"><div className="mb-2 flex items-center gap-2 font-semibold text-indigo-700"><Sparkles className="h-4 w-4" /> Agent siap membantu</div>Kirim instruksi seperti “{selectedAgent.examplePrompt}”. {selectedAgent.name} akan mencari evidence yang relevan dan menjelaskan hasilnya.</div>}
                 {conversation?.messages.map((item) => <div key={item.message_id} className={`flex ${item.role === 'user' ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-6 ${item.role === 'user' ? 'rounded-br-md bg-indigo-600 text-white' : 'rounded-bl-md bg-slate-100 text-textPrimary'}`}>{item.content}</div></div>)}
                 {(activity === 'preparing' || activity === 'waiting') && <div className="flex items-center gap-2 text-sm text-textSecondary"><span className="flex gap-1"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-500" /><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-500 [animation-delay:150ms]" /><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-500 [animation-delay:300ms]" /></span>{activityLabel}</div>}
               </div>

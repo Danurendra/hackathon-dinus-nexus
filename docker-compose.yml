@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: dinusnexus-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: dinusnexus
+      POSTGRES_PASSWORD: dinuspassword123
+      POSTGRES_DB: dinusnexus
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dinusnexus -d dinusnexus"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dinusnexus-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://dinusnexus:dinuspassword123@postgres:5432/dinusnexus
+      - DINUSNEXUS_API_KEY=06431bfc490640038e877c92db706484107b30932b9e48f584ed9030b68f3638
+      - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+      - LLM_ENABLED=false
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+        - NEXT_PUBLIC_DINUSNEXUS_API_KEY=06431bfc490640038e877c92db706484107b30932b9e48f584ed9030b68f3638
+    container_name: dinusnexus-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:

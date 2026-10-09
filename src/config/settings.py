@@ -9,6 +9,7 @@ class LLMSettings(BaseSettings):
     model_config = ConfigDict(extra="ignore")
 
 class Settings(BaseSettings):
+    llm_provider: str = "primary"
     llm_base_url: str = ""
     llm_api_key: str = ""
     llm_model: str = "qwen3-coder-flash"

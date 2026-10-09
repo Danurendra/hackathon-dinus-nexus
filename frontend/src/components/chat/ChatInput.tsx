@@ -46,6 +46,19 @@ export function ChatInput({ onSubmit, isLoading = false, placeholder = "Ketik pe
     if (e.target.files) {
       const newFiles = Array.from(e.target.files);
       setAttachments(prev => [...prev, ...newFiles]);
+      // If text or log file, read and append its content to the message
+      newFiles.forEach(file => {
+        if (file.name.endsWith('.txt') || file.name.endsWith('.log') || file.name.endsWith('.csv')) {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const text = event.target?.result as string;
+            if (text) {
+              setMessage(prev => prev ? `${prev}\n\n[Isi ${file.name}]:\n${text}` : `[Isi ${file.name}]:\n${text}`);
+            }
+          };
+          reader.readAsText(file);
+        }
+      });
     }
   };
 
@@ -54,12 +67,32 @@ export function ChatInput({ onSubmit, isLoading = false, placeholder = "Ketik pe
   };
 
   const handleVoiceRecording = () => {
-    setIsRecording(!isRecording);
-    // In a real app, this would integrate with Web Speech API
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert('Perekaman suara via Web Speech API tidak didukung di browser ini.');
+      return;
+    }
+
     if (!isRecording) {
-      console.log('Starting voice recording...');
+      try {
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'id-ID';
+        recognition.interimResults = false;
+        recognition.onstart = () => setIsRecording(true);
+        recognition.onresult = (event: any) => {
+          const transcript = event.results[0][0].transcript;
+          if (transcript) {
+            setMessage(prev => prev ? `${prev} ${transcript}` : transcript);
+          }
+        };
+        recognition.onerror = () => setIsRecording(false);
+        recognition.onend = () => setIsRecording(false);
+        recognition.start();
+      } catch (err) {
+        setIsRecording(false);
+      }
     } else {
-      console.log('Stopping voice recording...');
+      setIsRecording(false);
     }
   };
 

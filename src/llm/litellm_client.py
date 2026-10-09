@@ -1,4 +1,5 @@
 import httpx
+import logging
 from typing import Dict, List, Any, Optional
 from pydantic import BaseModel
 from src.llm.adapter import LLMAdapter, LLMResponse
@@ -20,17 +21,25 @@ class LiteLLMClient(LLMAdapter):
     async def chat_completion(self, messages: List[Dict[str, str]], **kwargs) -> LLMResponse:
         """Generate chat completion from messages"""
         try:
+            request = {
+                "model": self.model,
+                "messages": messages,
+            }
+            if self.model.startswith("gpt-5"):
+                request["max_completion_tokens"] = kwargs.get("max_tokens", 2000)
+                request["reasoning_effort"] = "low"
+            else:
+                request["temperature"] = kwargs.get("temperature", 0.7)
+                request["max_tokens"] = kwargs.get("max_tokens", 1000)
             response = await self.client.post(
                 "/chat/completions",
-                json={
-                    "model": self.model,
-                    "messages": messages,
-                    "temperature": kwargs.get("temperature", 0.7),
-                    "max_tokens": kwargs.get("max_tokens", 1000),
-                }
+                json=request,
             )
             response.raise_for_status()
             data = response.json()
+            content = data["choices"][0]["message"].get("content", "")
+            if not content.strip():
+                raise RuntimeError("LLM returned an empty response.")
             
             # Extract usage if available
             usage = None
@@ -38,7 +47,7 @@ class LiteLLMClient(LLMAdapter):
                 usage = data["usage"]
             
             return LLMResponse(
-                content=data["choices"][0]["message"]["content"],
+                content=content,
                 usage=usage,
                 model=data.get("model")
             )
@@ -82,6 +91,12 @@ class FallbackLLMClient(LLMAdapter):
             try:
                 return await provider.chat_completion(messages, **kwargs)
             except Exception as exc:
+                provider_name = type(provider).__name__
+                logging.getLogger(__name__).warning(
+                    "LLM provider %s failed: %s",
+                    provider_name,
+                    type(exc).__name__,
+                )
                 errors.append(exc)
 
         raise RuntimeError(

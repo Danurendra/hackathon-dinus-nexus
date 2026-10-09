@@ -51,6 +51,7 @@ export default function WorkspaceSectionPage({ params }: { params: { section: st
   if (params.section === 'operations') return <EventPlanningWorkspace />;
   if (params.section === 'agents') return <AgentWorkspace />;
   if (params.section === 'tasks') return <TasksWorkspace />;
+  if (params.section === 'approvals') return <TasksWorkspace initialStatusFilter="waiting_for_approval" />;
 
   const section = sections[params.section] ?? {
     title: 'Workspace',

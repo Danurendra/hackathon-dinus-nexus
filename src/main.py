@@ -100,10 +100,17 @@ settings = Settings()
 def _build_llm_client() -> FallbackLLMClient:
     primary = None
     fallback = None
-    if settings.llm.base_url and settings.llm.api_key:
-        primary = LiteLLMClient(settings.llm)
-    if settings.llm_fallback_enabled and settings.openai.api_key:
-        fallback = OpenAIChatClient(settings.openai)
+    primary_is_openai = settings.llm_provider.strip().lower() == "openai"
+    if primary_is_openai:
+        if settings.openai.api_key:
+            primary = OpenAIChatClient(settings.openai)
+        if settings.llm_fallback_enabled and settings.llm.base_url and settings.llm.api_key:
+            fallback = LiteLLMClient(settings.llm)
+    else:
+        if settings.llm.base_url and settings.llm.api_key:
+            primary = LiteLLMClient(settings.llm)
+        if settings.llm_fallback_enabled and settings.openai.api_key:
+            fallback = OpenAIChatClient(settings.openai)
     return FallbackLLMClient(primary, fallback)
 
 

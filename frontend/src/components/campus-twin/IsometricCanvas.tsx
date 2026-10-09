@@ -220,7 +220,7 @@ export function IsometricCanvas({
       </svg>
 
       {/* Camera controls */}
-      <div className="absolute bottom-4 right-4 flex flex-col gap-2">
+      <div className="absolute bottom-12 left-4 z-20 flex flex-col gap-2">
         <CampusButton palette={palette} variant="outline" ariaLabel="Zoom in" onClick={handleZoomIn}>
           <ZoomIn className="h-4 w-4" />
         </CampusButton>

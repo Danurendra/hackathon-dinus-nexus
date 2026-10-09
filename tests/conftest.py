@@ -21,13 +21,24 @@ _test_url = os.getenv("TEST_DATABASE_URL")
 if not _test_url:
     _base = os.getenv("DATABASE_URL")
     if not _base:
-        raise RuntimeError(
-            "DATABASE_URL (or TEST_DATABASE_URL) must be set to run the test suite."
-        )
-    _url = make_url(_base)
-    _test_url = _url.set(
-        database=f"{_url.database}_test"
-    ).render_as_string(hide_password=False)
+        _test_url = "sqlite:///tests_local.db"
+    else:
+        _url = make_url(_base)
+        if _url.drivername.startswith("postgres"):
+            import socket
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(0.5)
+            host = _url.host or "localhost"
+            port = _url.port or 5432
+            try:
+                sock.connect((host, port))
+                sock.close()
+                _test_url = _url.set(database=f"{_url.database}_test").render_as_string(hide_password=False)
+            except Exception:
+                # PostgreSQL not running; fall back to local SQLite test db
+                _test_url = f"sqlite:///{ROOT}/tests_local.db"
+        else:
+            _test_url = _url.set(database=f"{_url.database}_test").render_as_string(hide_password=False)
 os.environ["DATABASE_URL"] = _test_url
 
 # Fixed key used by the authentication tests.
@@ -51,11 +62,15 @@ def _schema():
 @pytest.fixture(autouse=True)
 def _clean_tasks():
     with engine.begin() as connection:
-        connection.execute(
-            text(
-                "TRUNCATE TABLE execution_steps, task_runs, tasks RESTART IDENTITY CASCADE"
+        if engine.dialect.name == "postgresql":
+            connection.execute(
+                text(
+                    "TRUNCATE TABLE execution_steps, task_runs, tasks RESTART IDENTITY CASCADE"
+                )
             )
-        )
+        else:
+            for tbl in reversed(Base.metadata.sorted_tables):
+                connection.execute(tbl.delete())
     yield
 
 
