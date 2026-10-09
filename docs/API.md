@@ -193,6 +193,19 @@ Token usage from the provider is stored in `result.analysis.usage` when availabl
 otherwise it is `{"status": "unavailable"}`. No prompt content or credentials are
 logged.
 
+### Retry and timeout
+
+The provider call uses a bounded retry policy:
+
+- Each request has a timeout (`LLM_TIMEOUT_SECONDS`, default 30s).
+- Transient errors — connection/timeout, HTTP 408/409/429, and 5xx — are retried
+  with exponential backoff + jitter, up to `LLM_MAX_ATTEMPTS` (default 3, capped
+  at 5).
+- Non-transient errors (e.g. 400/401) and structurally invalid output are **not**
+  retried; they fail fast as `LLM_ANALYSIS_FAILED`.
+- The OpenAI SDK's own retry loop is disabled so the total number of attempts is
+  exactly the configured bound.
+
 ## Status values
 
 Implemented: `queued`, `running`, `completed`, `failed`.

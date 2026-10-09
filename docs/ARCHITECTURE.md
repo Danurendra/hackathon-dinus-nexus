@@ -248,6 +248,8 @@ Nodes:
   `tidak` are not stop words and can cause incidental matches.
 - LLM analysis is **opt-in** (`LLM_ENABLED=true`) and runs synchronously in the
   request; the default deterministic path stays free and easy to test.
+- LLM provider calls use a bounded retry policy (transient errors only, timeout
+  per request); non-transient errors fail fast as `LLM_ANALYSIS_FAILED`.
 - `Base.metadata.create_all()` still runs at API startup for developer
   convenience. Alembic is the managed migration path; `create_all` should be
   removed when deployment begins.

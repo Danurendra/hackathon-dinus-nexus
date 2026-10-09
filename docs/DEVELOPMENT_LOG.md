@@ -6,6 +6,52 @@ recorded run.
 
 ---
 
+## 2026-10-09 — Bounded LLM retry, timeout, and backoff
+
+**Goal.** Harden the optional LLM step so transient provider failures are
+retried a bounded number of times, non-transient failures fail fast, and every
+request has a timeout.
+
+### Changes
+
+| Area | Files | Notes |
+|---|---|---|
+| LLM analysis | `src/llm/analysis.py` | `_request_with_retry`, `_is_transient`, `_backoff_delay`, `max_attempts`, timeout per call |
+| LLM client | `src/llm/client.py` | `max_retries=0` (single, testable retry policy) |
+| Tests | `tests/test_llm_analysis.py` | retry/clamp/no-retry scenarios |
+| Config/docs | `.env.example`, `README.md`, `docs/API.md`, `docs/TESTING.md` | `LLM_MAX_ATTEMPTS`, `LLM_TIMEOUT_SECONDS`, `LLM_RETRY_BASE_DELAY` |
+
+### Policy
+
+- Retry only transient errors: connection/timeout, HTTP 408/409/429, and 5xx.
+- Exponential backoff (base `LLM_RETRY_BASE_DELAY`) with jitter; attempts bounded
+  by `LLM_MAX_ATTEMPTS` (default 3, clamped 1..5).
+- Non-transient errors (400/401) and structurally invalid output fail fast.
+- OpenAI SDK internal retries disabled so total attempts equal the configured
+  bound.
+
+### Commands and actual results
+
+```text
+python -m compileall -q src   -> exit 0
+pytest tests/test_llm_analysis.py -v
+  -> 14 passed, 1 skipped
+pytest
+  -> 45 passed, 1 skipped in 3.51s
+```
+
+### Open issues
+
+- Backoff timing is not asserted (time.sleep patched in tests).
+- No circuit breaker; each request retries independently.
+
+### Next steps
+
+1. Surface retry count in `result.analysis` metadata for observability.
+2. Consider background execution for long LLM calls.
+
+---
+
 ## 2026-10-09 — Optional LLM `analyze_evidence` step (Structured Outputs)
 
 **Goal.** Integrate OpenAI into the LangGraph workflow as an optional, validated

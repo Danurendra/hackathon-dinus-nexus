@@ -1,6 +1,6 @@
 # Testing — DinusNexus Backend
 
-> Status: **implemented and passing**. Last run: 2026-10-09, **41 passed, 1 skipped**.
+> Status: **implemented and passing**. Last run: 2026-10-09, **45 passed, 1 skipped**.
 
 ## Prerequisites
 
@@ -95,13 +95,15 @@ Environment setup in `conftest.py` runs before importing `src.*`, pointing
 - LLM failure is persisted as `failed` with `LLM_ANALYSIS_FAILED` and a failed
   `analyze_evidence` step.
 
-### `tests/test_llm_analysis.py` (10 + 1 live)
+### `tests/test_llm_analysis.py` (14 + 1 live)
 - Evidence digest is bounded (max records per dataset) and field-filtered
   (allow-list; e.g. `macAddress` never sent).
 - Prompt handles empty findings and includes real hits.
-- `analyze_findings` returns a validated result and usage.
-- Provider error and missing/malformed output raise `LLMAnalysisError`.
-- Usage reported as `unavailable` when the provider omits it.
+- `analyze_findings` returns a validated result and usage; usage reported as
+  `unavailable` when the provider omits it.
+- Retry policy: transient 429/503 retried then succeeds; gives up after
+  `LLM_MAX_ATTEMPTS`; non-transient 400 not retried; missing/malformed output not
+  retried; `max_attempts` clamped to 1..5.
 - `analyze_evidence` node: skipped when disabled, completed with usage when
   enabled, and raises `StepFailedError` with a failed step on failure.
 - `test_live_analyze_findings` — opt-in real API call (skipped by default).
@@ -110,7 +112,7 @@ Environment setup in `conftest.py` runs before importing `src.*`, pointing
 
 ```
 $ pytest
-41 passed, 1 skipped in 3.76s
+45 passed, 1 skipped in 3.51s
 ```
 
 ## Smoke test (manual)
@@ -157,4 +159,4 @@ RUN_LIVE_LLM=1 LLM_ENABLED=true pytest -m live_llm -q
 - Alembic upgrade is verified manually (`docs/DEVELOPMENT_LOG.md`) but has no
   automated test.
 - `waiting_for_approval` / `cancelled` states are not implemented.
-- No retry/backoff around LLM provider errors yet.
+- Retry backoff timing is not asserted (sleep is patched out in tests).

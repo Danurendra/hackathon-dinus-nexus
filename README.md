@@ -101,6 +101,9 @@ uvicorn src.main:app --reload
 | `LLM_ENABLED` | tidak | `true` untuk mengaktifkan langkah LLM (default `false`) |
 | `OPENAI_API_KEY` | tidak | wajib bila `LLM_ENABLED=true` |
 | `LLM_MODEL` | tidak | default `gpt-4o-mini` |
+| `LLM_MAX_ATTEMPTS` | tidak | batas percobaan provider (default `3`, maks `5`) |
+| `LLM_TIMEOUT_SECONDS` | tidak | timeout per request (default `30`) |
+| `LLM_RETRY_BASE_DELAY` | tidak | basis backoff detik (default `0.5`) |
 
 Nilai asli tidak boleh masuk source code, dokumentasi, log, atau Git.
 
@@ -138,6 +141,9 @@ demo. Hasil terakhir: **29 passed**. Skenario dan fixture: [`docs/TESTING.md`](d
 - **LLM opsional**: default deterministik. Langkah `analyze_evidence` hanya jalan
   bila `LLM_ENABLED=true`; kegagalan LLM membuat task `failed` (tidak pernah
   `completed`). Fakta/evidence tetap berasal dari dataset, bukan dari model.
+- **Retry terbatas**: error provider transien (rate limit, timeout, 5xx) di-retry
+  dengan exponential backoff + jitter, dibatasi `LLM_MAX_ATTEMPTS`. Error
+  non-transien (mis. 400/401) dan output tidak valid tidak di-retry.
 - **Run/step belum ternormalisasi**: steps disimpan sebagai JSON di tabel
   `tasks`; belum ada tabel `task_runs`/`execution_steps` terpisah.
 - **`create_all` saat startup**: masih dipakai untuk kenyamanan dev; Alembic
