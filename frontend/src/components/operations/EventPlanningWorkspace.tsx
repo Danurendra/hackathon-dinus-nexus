@@ -7,6 +7,9 @@ import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
 import { EventScenarioInput, graduationScenario, simulateEvent } from '@/data/eventSimulation';
+import { EventAgentRun } from './EventAgentRun';
+import { API_BASE_URL, apiHeaders } from '@/lib/api';
+import { useDemoAccess } from '@/hooks/useDemoAccess';
 
 const scenarios: Array<{ id: string; label: string; description: string; change: Partial<EventScenarioInput> }> = [
   { id: 'baseline', label: 'Baseline', description: 'Rencana awal', change: {} },
@@ -14,8 +17,6 @@ const scenarios: Array<{ id: string; label: string; description: string; change:
   { id: 'stress', label: 'Stress test', description: 'Kapasitas dan daya berkurang', change: { concurrentOccupancy: 21000, availablePowerKw: 2600, availableNetworkMbps: 4200 } },
 ];
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8000';
-const API_KEY = process.env.NEXT_PUBLIC_DINUSNEXUS_API_KEY;
 
 interface AgentMessage {
   message_id: string;
@@ -25,6 +26,7 @@ interface AgentMessage {
 }
 
 export function EventPlanningWorkspace() {
+  const API_KEY = useDemoAccess();
   const [input, setInput] = useState<EventScenarioInput>(graduationScenario);
   const [selectedScenario, setSelectedScenario] = useState('baseline');
   const [agentMessage, setAgentMessage] = useState('');
@@ -45,7 +47,7 @@ export function EventPlanningWorkspace() {
     'Analisis skenario event kampus berikut sebagai Campus Operations Agent.',
     'Penting: semua angka berasal dari deterministic simulation dan planning assumptions, bukan telemetry live.',
     `Skenario: University Graduation Ceremony (${scenario.label})`,
-    `Input: attendance=${input.attendance}, concurrent_occupancy=${input.concurrentOccupancy}, venue_capacity=${input.venueCapacity}, duration_hours=${input.durationHours}, available_power_kw=${input.availablePowerKw}, network_capacity_mbps=${input.availableNetworkMbps}, venues=${input.venues}`,
+    `Input: ${JSON.stringify({ ...input, ...scenario.change })}`,
     `Forecast: peak_power_kw=${forecast.peakPowerKw}, energy_kwh=${forecast.energyKwh}, occupancy_percent=${forecast.occupancyPercent}, network_demand_mbps=${forecast.networkDemandMbps}, power_utilization_percent=${forecast.powerUtilizationPercent}, network_utilization_percent=${forecast.networkUtilizationPercent}, risk=${forecast.risk}`,
     `Risiko terdeteksi: ${forecast.risks.length ? forecast.risks.join(' | ') : 'tidak ada constraint melewati threshold'}`,
     `Rekomendasi deterministic engine: ${forecast.recommendations.join(' | ')}`,
@@ -59,10 +61,7 @@ export function EventPlanningWorkspace() {
     setAgentState('preparing');
     try {
       let activeConversationId = conversationId;
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-        ...(API_KEY ? { 'X-API-Key': API_KEY } : {}),
-      };
+      const headers = apiHeaders({ 'Content-Type': 'application/json' });
       if (!activeConversationId) {
         const conversationResponse = await fetch(`${API_BASE_URL}/api/conversations`, {
           method: 'POST',
@@ -104,7 +103,7 @@ export function EventPlanningWorkspace() {
 
       <Card className="overflow-hidden border-indigo-100">
         <div className="flex flex-col gap-4 border-b border-border bg-gradient-to-r from-indigo-50 to-white p-5 md:flex-row md:items-center md:justify-between">
-          <div><p className="text-xs font-semibold uppercase tracking-wider text-indigo-600">Active scenario</p><h2 className="mt-1 text-xl font-semibold text-textPrimary">University Graduation Ceremony</h2><p className="mt-1 text-sm text-textSecondary">39.000 total attendance · 6 jam · 3 venue simulasi</p></div>
+          <div><p className="text-xs font-semibold uppercase tracking-wider text-indigo-600">Active scenario</p><h2 className="mt-1 text-xl font-semibold text-textPrimary">University Graduation Ceremony</h2><p className="mt-1 text-sm text-textSecondary">{input.attendance.toLocaleString('id-ID')} total attendance · {input.durationHours} jam · {({ ...input, ...scenario.change }).venues} venue simulasi</p></div>
           <div className="flex rounded-lg border border-border bg-white p-1">{scenarios.map((item) => <button key={item.id} type="button" onClick={() => setSelectedScenario(item.id)} className={`rounded-md px-3 py-2 text-xs font-semibold transition ${selectedScenario === item.id ? 'bg-indigo-600 text-white shadow-sm' : 'text-textSecondary hover:bg-slate-50'}`}>{item.label}</button>)}</div>
         </div>
         <div className="grid gap-5 p-5 md:grid-cols-3">
@@ -120,7 +119,7 @@ export function EventPlanningWorkspace() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Forecast label="Peak power" value={`${forecast.peakPowerKw.toLocaleString('id-ID')} kW`} detail={`${forecast.powerUtilizationPercent}% capacity`} icon={<Zap className="h-5 w-5" />} tone={forecast.powerUtilizationPercent > 85 ? 'warning' : 'normal'} />
         <Forecast label="Energy estimate" value={`${forecast.energyKwh.toLocaleString('id-ID')} kWh`} detail="peak demand dipisahkan" icon={<BarChart3 className="h-5 w-5" />} tone="normal" />
-        <Forecast label="Peak occupancy" value={`${forecast.occupancyPercent}%`} detail={`${input.concurrentOccupancy.toLocaleString('id-ID')} concurrent`} icon={<AlertTriangle className="h-5 w-5" />} tone={forecast.occupancyPercent > 90 ? 'danger' : 'normal'} />
+        <Forecast label="Peak occupancy" value={`${forecast.occupancyPercent}%`} detail={`${({ ...input, ...scenario.change }).concurrentOccupancy.toLocaleString('id-ID')} concurrent`} icon={<AlertTriangle className="h-5 w-5" />} tone={forecast.occupancyPercent > 90 ? 'danger' : 'normal'} />
         <Forecast label="Network demand" value={`${forecast.networkDemandMbps.toLocaleString('id-ID')} Mbps`} detail={`${forecast.networkUtilizationPercent}% capacity`} icon={<CheckCircle2 className="h-5 w-5" />} tone={forecast.networkUtilizationPercent > 80 ? 'warning' : 'normal'} />
       </div>
 
@@ -134,12 +133,14 @@ export function EventPlanningWorkspace() {
         <Card className="p-5"><h2 className="font-semibold text-textPrimary">Recommended next steps</h2><div className="mt-4 space-y-3">{forecast.recommendations.map((recommendation, index) => <div key={recommendation} className="flex gap-3 text-sm text-textSecondary"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-50 text-xs font-semibold text-indigo-600">{index + 1}</span><span>{recommendation}</span></div>)}</div><div className="mt-5 rounded-lg bg-slate-50 p-3 text-xs text-textSecondary">Sensitive operational actions require human approval and are not executed automatically.</div></Card>
       </div>
 
+      <EventAgentRun input={{ ...input, ...scenario.change }} scenario={scenario.label} />
+
       <Card className="overflow-hidden border-indigo-100">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-gradient-to-r from-indigo-50 to-white px-5 py-4">
           <div className="flex items-center gap-3">
             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white"><Bot className="h-5 w-5" /></span>
             <div>
-              <div className="flex flex-wrap items-center gap-2"><h2 className="font-semibold text-textPrimary">Campus Operations AI Agent</h2><Badge variant="success">CONNECTED</Badge><Badge variant="warning">SYNTHETIC CONTEXT</Badge></div>
+              <div className="flex flex-wrap items-center gap-2"><h2 className="font-semibold text-textPrimary">Chat AI tambahan (opsional)</h2><Badge variant="warning">PROVIDER REQUIRED</Badge><Badge variant="warning">SYNTHETIC CONTEXT</Badge></div>
               <p className="mt-1 text-xs text-textSecondary">Menganalisis forecast dan risiko skenario tanpa mengeksekusi tindakan operasional.</p>
             </div>
           </div>

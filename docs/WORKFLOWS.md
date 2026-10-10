@@ -81,6 +81,102 @@ Step status dapat lebih terperinci, termasuk `skipped` atau `retrying`, sesuai i
 
 Gunakan dataset sintetis yang jelas diberi label. Contoh gedung/perangkat tidak mewakili kondisi kampus nyata kecuali terintegrasi dengan sumber yang sah dan diverifikasi.
 
+## Demo Campus Twin → Campus Operations → IT Helpdesk
+
+Alur ini memakai model/geometri OSM existing, bukan menggantinya. Di dashboard `/`:
+
+1. Buka **Scenario** pada Campus Twin, lalu **Run Simulation**. Proyeksi visual
+   tetap model lokal `scenarioModel.ts`, dengan label sintetis/asumsi.
+2. Panel **Workflow Agent** muncul di bawah peta. Agregat peserta konkuren,
+   jumlah venue, dan kapasitas skenario diteruskan sebagai **planning input**;
+   daya 3.200 kW/uplink 5.000 Mbps adalah fixture. Model agregat backend terpisah
+   dari distribusi gedung/pengali cuaca Twin; jangan mengklaim keduanya identik.
+3. Isi nama event, tekan **Jalankan workflow event**. Backend memeriksa inventory
+   dan insiden, menghitung ulang input, lalu menyimpan task Campus Operations.
+4. Buka **Input & forecast tersimpan**, risiko, rekomendasi, execution steps,
+   dan **Evidence**. Warna/animasi peta bukan bukti kondisi live.
+5. Tekan **Investigasi device-AP-A2-02**. Server memvalidasi ID terhadap evidence
+   event sebelum membuat task IT Helpdesk. Tidak ada restart atau perubahan
+   perangkat. Buka **task & execution history**, lalu refresh untuk menunjukkan
+   persistence. ID event sumber tercantum pada description task investigasi.
+
+Alternatif demo angka yang mudah direproduksi: buka `/workspace/operations`,
+pilih **Baseline**, gunakan input default 39.000 peserta, 18.000 konkuren,
+6 jam, kapasitas 20.000, 3 venue, daya 3.200 kW/uplink 5.000 Mbps. Assessment
+backend menghasilkan 2.805 kW, 12.118 kWh, 3.630 Mbps, 8 AP online dalam dataset,
+dan estimasi 11 AP tambahan dengan asumsi 200 Mbps/AP. Angka tersebut bukan
+telemetry live/jaminan keselamatan. Tampilkan alasan serta asumsi, bukan angka saja.
+
+### Menjalankan dan memverifikasi demo
+
+- Backend: root proyek, environment `.env` lokal, PostgreSQL tersedia,
+  `alembic upgrade head`, lalu `uvicorn src.main:app --reload`.
+- Frontend: `frontend/`, `.env.local` dengan URL backend dan key demo yang cocok,
+  `npm ci`, lalu `npm run dev`. Key browser bukan key produksi/provider AI.
+- Default `LLM_ENABLED=false`: demo di atas tanpa biaya LLM. Review AI opsional
+  memakai OpenAI existing ketika enabled; jangan aktifkan saat test rutin.
+  Batasi percobaan via `LLM_MAX_ATTEMPTS`; budget dolar bukan hard cap aplikasi.
+- Jalur gagal: ubah **Venue capacity** menjadi 0 di Operations lalu submit;
+  server menolak `422`, UI menampilkan error dan tombol dapat dicoba ulang.
+  Provider/data failure membuat task `failed`, bukan completed palsu.
+- Backend regression: `python -m pytest tests/test_event_planning.py`.
+- Frontend: `npm run test -- --run`, `npx tsc --noEmit`, `npm run build`.
+  Jangan build ke `.next` yang sama saat dev server aktif; hentikan dev server
+  sendiri terlebih dahulu atau gunakan snapshot terisolasi. Lint masih meminta
+  setup ESLint karena konfigurasi repo belum tersedia.
+- Browser E2E: `frontend/e2e/event-demo.spec.ts`, `npx playwright test`.
+  Config default Edge, frontend `http://127.0.0.1:3001`; siapkan frontend/backend
+  **terisolasi** dengan database test, key demo, `LLM_ENABLED=false`, dan origin
+  frontend di CORS. Override URL dengan `DEMO_FRONTEND_URL`, browser dengan
+  `PLAYWRIGHT_CHANNEL`. Tests membuat task: jangan arahkan ke produksi.
+
+Keterbatasan: event masih input pengguna, bukan kalender terhubung; belum ada
+RBAC per-worker, queue, streaming UI progress event, sensor live, pemetaan venue
+OSM → AP yang terverifikasi, atau eksekusi fasilitas/jaringan otomatis. Hasil
+tersimpan dapat dibaca setelah refresh; kontrol input/preview tidak dipersistenkan.
+
+## Operations: investigasi IT dari halaman workspace
+
+Route `/workspace/operations` mempertahankan event planner. Tab **Investigasi IT**
+(`/workspace/operations?view=incidents`) menggunakan jalur task persisten yang berbeda
+dari chat conversation:
+
+1. Petugas mengisi deskripsi, zona dari dataset, jenis perangkat, dan permintaan review opsional.
+2. UI mengirim `POST /api/tasks` dengan worker `it_helpdesk`. Workflow berjalan sinkron;
+   selama request UI hanya menampilkan status menunggu, bukan progress node buatan.
+3. Riwayat dibaca dari `/api/history`, difilter ke IT Helpdesk; inspector membaca run
+   ternormalisasi dari `/api/tasks/{id}/runs` dengan fallback berlabel ke steps task.
+4. Fakta dan source ID terpisah dari interpretasi, rekomendasi, dan ketidakpastian.
+   Label `SYNTHETIC` selalu terlihat. Mode deterministik ditampilkan bila langkah LLM skipped;
+   mode LLM hanya ditampilkan ketika analisis berhasil dan hasil tersedia.
+5. Review tindakan sensitif dapat disetujui/ditolak dengan catatan melalui endpoint approval.
+   Keputusan tidak mengeksekusi aksi pada perangkat atau akun.
+6. Kegagalan request memuat ulang riwayat agar task gagal yang sudah disimpan tetap terlihat.
+   Filter pencarian/status tidak menampilkan detail task di luar hasil filter.
+
+Setup mengikuti `.env.example` dan `frontend/.env.example`. Untuk analisis LLM,
+aktifkan `LLM_ENABLED=true` dan konfigurasi OpenAI pada backend; key provider tidak
+ditaruh di browser. Mode deterministik tetap tersedia tanpa panggilan AI berbayar.
+
+Tes client: `npm run test -- --run src/lib/operationsApi.test.ts` di `frontend/`.
+Tes browser dengan semua endpoint backend dimock:
+`npx playwright test e2e/operations-incidents.spec.ts` (URL frontend dari `DEMO_FRONTEND_URL`).
+Tes ini tidak memanggil provider AI dan tidak membuktikan kompatibilitas PostgreSQL atau LLM live.
+UI mengikuti palet terang workspace yang ada; preferensi warna gelap tidak mengubah
+tema global. Header global masih memiliki overflow kecil pada viewport 390px;
+konten modul investigasi diuji terpisah tanpa mengganti layout tim.
+
+Verifikasi 10 Oktober 2026: tes client Operations 11 lulus; browser Operations
+5 lulus (API dimock, Edge, frontend lokal port 3000), termasuk reload, approval,
+retry, evidence, keyboard, serta viewport mobile/reduced-motion. Regresi backend
+IT Helpdesk terkait: 53 lulus, 1 live-LLM dilewati dengan database SQLite terisolasi
+di direktori temporer. Type-check dan `git diff --check` lulus. Build tidak dijalankan
+ke `.next` karena dev server tim aktif; lint belum tersedia tanpa setup ESLint.
+Pemeriksaan browser ulang setelah perubahan paralel tim terblokir oleh server Next.js:
+`Cannot find module './vendor-chunks/@opentelemetry.js'` pada cache `.next`.
+Perlu restart dev server setelah aktivitas build selesai, lalu ulangi tes browser;
+cache/proses bersama tidak dihapus atau dihentikan otomatis.
+
 ## Workflow dokumen (shared capability)
 
 1. Validasi ekstensi, MIME/type, ukuran, dan batas upload.

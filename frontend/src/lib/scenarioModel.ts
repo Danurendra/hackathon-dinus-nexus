@@ -319,19 +319,11 @@ export function simulateScenario(input: ScenarioInput): ScenarioForecast {
     });
   }
 
-  if (risk === 'critical' || risk === 'high') {
-    workerActions.push({
-      worker: 'Operations Worker',
-      action: 'Identify congestion and propose mitigations',
-      status: 'available',
-      endpoint: '/api/tasks',
-      payload: {
-        worker: 'it_helpdesk',
-        description: `Scenario simulation: ${risk} risk detected with ${overloadedBuildings.length} overloaded buildings`,
-        location: 'Campus-wide',
-      },
-    });
-  }
+  workerActions.push({
+    worker: 'Campus Operations Worker',
+    action: 'Buka Workflow Agent di bawah peta untuk assessment backend, evidence dan history',
+    status: 'available',
+  });
 
   // Assumptions
   const assumptions = [

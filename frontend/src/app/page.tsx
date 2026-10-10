@@ -83,6 +83,22 @@ interface Conversation {
   messages: Message[];
 }
 
+interface AgentStatus {
+  phase: 'idle' | 'received' | 'retrieving_evidence' | 'analyzing' | 'saving_response' | 'completed' | 'failed';
+  status: 'idle' | 'running' | 'completed' | 'failed';
+  detail: string;
+}
+
+const agentPhaseLabels: Record<AgentStatus['phase'], string> = {
+  idle: 'Siap',
+  received: 'Pesan diterima',
+  retrieving_evidence: 'Retrieval evidence',
+  analyzing: 'Analisis agent',
+  saving_response: 'Menyimpan respons',
+  completed: 'Selesai',
+  failed: 'Gagal',
+};
+
 function formatDate(value: string) {
   return new Intl.DateTimeFormat('id-ID', {
     dateStyle: 'medium',
@@ -106,7 +122,10 @@ export default function HomePage() {
   const [activeRightTab, setActiveRightTab] = useState<'tasks' | 'chat'>('tasks');
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCreatingConversation, setIsCreatingConversation] = useState(false);
   const [error, setError] = useState<string>();
+  const [conversationNotice, setConversationNotice] = useState<string>();
+  const [agentStatus, setAgentStatus] = useState<AgentStatus>();
 
   const selectedTask = useMemo(
     () => tasks.find((task) => task.task_id === selectedTaskId) ?? tasks[0],
@@ -142,7 +161,13 @@ export default function HomePage() {
 
       if (convResponse.ok) {
         const convData = (await convResponse.json()) as Conversation[];
-        setConversations(convData);
+        setConversations((current) => {
+          const loadedIds = new Set(convData.map((conversation) => conversation.conversation_id));
+          const createdWhileLoading = current.filter(
+            (conversation) => !loadedIds.has(conversation.conversation_id),
+          );
+          return [...createdWhileLoading, ...convData];
+        });
         setSelectedConversationId((current) => current ?? convData[0]?.conversation_id);
       } else {
         setConversations([]);
@@ -220,7 +245,9 @@ export default function HomePage() {
     );
 
     setIsSubmitting(true);
+    setAgentStatus({ phase: 'received', status: 'running', detail: 'Menghubungi agent...' });
     setError(undefined);
+    setConversationNotice(undefined);
 
     try {
       const response = await apiFetch(`/api/conversations/${selectedConversationId}/messages`, {
@@ -254,6 +281,7 @@ export default function HomePage() {
             : conv,
         ),
       );
+      setConversationNotice('Agent selesai menganalisis evidence dan menyimpan respons.');
     } catch (sendError) {
       setError(sendError instanceof Error ? sendError.message : 'Gagal mengirim pesan.');
     } finally {
@@ -261,7 +289,34 @@ export default function HomePage() {
     }
   };
 
+  useEffect(() => {
+    if (!isSubmitting || !selectedConversationId) return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const response = await apiFetch(`/api/conversations/${selectedConversationId}/agent-status`, {
+          cache: 'no-store',
+        });
+        if (response.ok && !cancelled) {
+          setAgentStatus((await response.json()) as AgentStatus);
+        }
+      } catch {
+        // The message request remains the source of truth if polling is interrupted.
+      }
+    };
+    void poll();
+    const interval = window.setInterval(() => void poll(), 300);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [isSubmitting, selectedConversationId]);
+
   const handleCreateConversation = async () => {
+    if (isCreatingConversation) return;
+    setIsCreatingConversation(true);
+    setError(undefined);
+    setConversationNotice(undefined);
     try {
       const response = await apiFetch('/api/conversations', {
         method: 'POST',
@@ -272,15 +327,27 @@ export default function HomePage() {
         }),
       });
 
-      if (!response.ok) throw new Error('Percakapan gagal dibuat.');
+      if (!response.ok) {
+        let detail = 'Percakapan gagal dibuat.';
+        try {
+          const body = (await response.json()) as { detail?: string };
+          if (body.detail) detail = body.detail;
+        } catch {
+          // Keep the user-facing fallback when the backend returns no JSON body.
+        }
+        throw new Error(detail);
+      }
 
       const newConversation = (await response.json()) as Conversation;
 
       setConversations((prev) => [newConversation, ...prev]);
       setSelectedConversationId(newConversation.conversation_id);
       setActiveRightTab('chat');
+      setConversationNotice('Percakapan baru siap. Kirim pesan untuk menjalankan AI Agent.');
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : 'Gagal membuat percakapan.');
+    } finally {
+      setIsCreatingConversation(false);
     }
   };
 
@@ -345,9 +412,9 @@ export default function HomePage() {
               <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
               Refresh history
             </Button>
-            <Button variant="primary" size="sm" onClick={handleCreateConversation}>
+            <Button variant="primary" size="sm" onClick={() => void handleCreateConversation()} disabled={isCreatingConversation}>
               <MessageSquare className="mr-2 h-4 w-4" />
-              Percakapan Baru
+              {isCreatingConversation ? 'Membuat...' : 'Percakapan Baru'}
             </Button>
           </div>
         </div>
@@ -525,12 +592,17 @@ export default function HomePage() {
             )
           ) : (
             <div className="space-y-4">
+              {conversationNotice && (
+                <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-800">
+                  {conversationNotice}
+                </div>
+              )}
               {/* Conversations Accordion / Selector */}
               <Card className="p-4">
                 <div className="mb-3 flex items-center justify-between">
                   <h2 className="text-sm font-semibold text-gray-900">Daftar Percakapan</h2>
-                  <Button variant="outline" size="sm" onClick={handleCreateConversation}>
-                    + Percakapan Baru
+                  <Button variant="outline" size="sm" onClick={() => void handleCreateConversation()} disabled={isCreatingConversation}>
+                    {isCreatingConversation ? 'Membuat...' : '+ Percakapan Baru'}
                   </Button>
                 </div>
                 {conversations.length === 0 ? (
@@ -574,6 +646,19 @@ export default function HomePage() {
                       <h3 className="font-semibold text-sm text-gray-900">{selectedConversation.title}</h3>
                     </div>
                     <Badge variant="info">IT Helpdesk</Badge>
+                  </div>
+                  <div className="mb-4 rounded-lg border border-indigo-100 bg-indigo-50/60 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-indigo-700">AI Agent workflow</p>
+                    <div className="mt-2 grid gap-2 text-xs text-gray-600 sm:grid-cols-3">
+                      <WorkflowStage label="1. Retrieval" detail="Cari evidence sintetis" />
+                      <WorkflowStage label="2. Analysis" detail="Analisis dengan policy agent" />
+                      <WorkflowStage label="3. Response" detail="Simpan jawaban & sumber" />
+                    </div>
+                    <div className="mt-3 flex items-center gap-2 text-xs font-medium text-indigo-700" aria-live="polite">
+                      <span className={`h-2 w-2 rounded-full ${agentStatus?.status === 'failed' ? 'bg-red-500' : isSubmitting ? 'animate-pulse bg-indigo-500' : 'bg-emerald-500'}`} />
+                      <span>{agentStatus ? agentPhaseLabels[agentStatus.phase] : 'Siap menerima pesan'}</span>
+                      {agentStatus?.detail && <span className="font-normal text-gray-600">— {agentStatus.detail}</span>}
+                    </div>
                   </div>
 
                   <div className="space-y-3 max-h-[380px] overflow-y-auto mb-4 p-2">
@@ -633,6 +718,15 @@ function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; 
         <p className="text-2xl font-semibold text-gray-900">{value}</p>
       </div>
     </Card>
+  );
+}
+
+function WorkflowStage({ label, detail }: { label: string; detail: string }) {
+  return (
+    <div className="rounded-md border border-indigo-100 bg-white px-2.5 py-2">
+      <p className="font-medium text-gray-800">{label}</p>
+      <p className="mt-0.5">{detail}</p>
+    </div>
   );
 }
 

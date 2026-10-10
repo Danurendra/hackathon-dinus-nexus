@@ -6,6 +6,41 @@ DinusNexus harus terasa seperti rekan kerja digital: mudah diajak bicara, meneri
 
 ## Layout utama
 
+### Halaman login (`/login`)
+
+- Halaman penuh tanpa header/sidebar workspace, dengan ilustrasi Campus Intelligence,
+  label `SYNTHETIC`, form email/password, dan toggle mode terang/gelap.
+- Mode utama **Akun workspace** mengirim `POST /api/auth/login`. Akun dan sesi
+  disimpan di PostgreSQL; password PBKDF2-SHA256 bersalt, bukan plaintext. Akun
+  dibuat admin lewat `python -m src.create_user`; tidak ada registrasi publik/SSO.
+- Token opaque berlaku 8 jam dan tersimpan di `sessionStorage` tab (bukan password).
+  Database hanya menyimpan digest token. Header memverifikasi `/api/auth/me` setelah
+  reload dan menampilkan nama akun. **Keluar** mencabut sesi server sebelum menghapus
+  token browser; jika backend gagal, error ditampilkan tanpa klaim logout berhasil.
+- Mode **API key demo** tetap tersedia: `GET /api/history` memverifikasi key, lalu
+  menyimpannya di sesi tab. Akses cepat memakai `NEXT_PUBLIC_DINUSNEXUS_API_KEY`
+  bila dikonfigurasi. **Keluar demo** menghapus key tab, bukan key build-time.
+- Client API mengutamakan bearer session lalu API key demo. Sesi tidak valid tidak
+  fallback ke API key di server. Workspace adalah ruang kerja operasional bersama,
+  **belum RBAC atau isolasi task per pengguna**; UI bukan batas otorisasi. API selalu
+  memerlukan sesi valid atau API key existing. Jangan gunakan untuk data produksi.
+- Akun otomatis terkunci 15 menit setelah 5 password salah. Error auth/jaringan/
+  database ditampilkan tanpa mencetak kredensial atau detail internal backend.
+- Token tab dapat dibaca JavaScript: perlindungan XSS, HTTPS, rate-limit global,
+  dan desain cookie HttpOnly/BFF diperlukan sebelum produksi. SSO dan reset password
+  mandiri belum terhubung. Menutup tab tidak mencabut sesi server; expiry tetap berlaku.
+- Verifikasi: `npm run test -- --run src/lib/login.test.ts` dan
+  `npx playwright test e2e/login.spec.ts` dengan frontend lokal. Endpoint API browser
+  dimock, tidak membuat task atau memanggil provider berbayar.
+- Verifikasi 10 Oktober 2026: migrasi dan seluruh backend suite pada PostgreSQL 16
+  terisolasi lulus (**109 passed, 1 skipped**, termasuk 9 tes akun). Database/container
+  test dihapus setelah pengujian; database demo tidak diubah. Frontend: **45 unit
+  test**, type-check dan build produksi snapshot terisolasi lulus; **6 browser test**
+  Edge pada port 3002/API mock lulus (login akun/demo, reload/logout, error,
+  keyboard/mobile/reduced-motion, screenshot terang/gelap). Browser mock bukan tes
+  jaringan backend live. Lint standalone masih meminta setup ESLint. Diff terfokus
+  bersih; diff seluruh repo menemukan blank line `.gitignore` milik perubahan lain.
+
 Gunakan satu Unified Workspace dengan tiga area konseptual:
 
 1. **Sidebar:** navigasi Overview, AI Assistant, Tasks & History, Approvals, delapan Campus Workers, Campus Twin, Knowledge Base, Analytics, Audit Logs, Token Usage.

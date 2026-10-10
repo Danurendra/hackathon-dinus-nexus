@@ -19,6 +19,8 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { StatusBadge } from '@/components/ui/StatusBadge';
+import { API_BASE_URL, apiHeaders } from '@/lib/api';
+import { useDemoAccess } from '@/hooks/useDemoAccess';
 
 type TaskStatus = 'queued' | 'running' | 'completed' | 'failed' | 'waiting_for_approval' | 'cancelled';
 type StepStatus = TaskStatus | 'skipped' | 'retrying';
@@ -69,8 +71,6 @@ interface RunsResponse {
   }>;
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8000';
-const API_KEY = process.env.NEXT_PUBLIC_DINUSNEXUS_API_KEY;
 
 const statusOptions: Array<{ value: 'all' | TaskStatus; label: string }> = [
   { value: 'all', label: 'Semua status' },
@@ -82,9 +82,6 @@ const statusOptions: Array<{ value: 'all' | TaskStatus; label: string }> = [
   { value: 'cancelled', label: 'Cancelled' },
 ];
 
-function apiHeaders(): HeadersInit {
-  return API_KEY ? { 'X-API-Key': API_KEY } : {};
-}
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat('id-ID', {
@@ -114,6 +111,7 @@ function statusIcon(status: TaskStatus) {
 }
 
 export function TasksWorkspace({ initialStatusFilter }: { initialStatusFilter?: 'all' | TaskStatus }) {
+  const API_KEY = useDemoAccess();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string>();
   const [query, setQuery] = useState('');
@@ -194,7 +192,7 @@ export function TasksWorkspace({ initialStatusFilter }: { initialStatusFilter?: 
     try {
       const response = await fetch(`${API_BASE_URL}/api/tasks/${selectedTask.task_id}/approval`, {
         method: 'POST',
-        headers: { ...apiHeaders(), 'Content-Type': 'application/json' },
+        headers: apiHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ decision }),
       });
       if (!response.ok) throw new Error(response.status === 401
@@ -240,7 +238,7 @@ export function TasksWorkspace({ initialStatusFilter }: { initialStatusFilter?: 
           <div>
             <p className="font-semibold">Data task belum tersedia</p>
             <p className="mt-1">{error}</p>
-            {!API_KEY && <p className="mt-2 text-xs">Set NEXT_PUBLIC_DINUSNEXUS_API_KEY di frontend/.env.local lalu restart Next.js.</p>}
+            {!API_KEY && <p className="mt-2 text-xs">Masuk melalui /login dengan akun workspace atau API key demo.</p>}
           </div>
         </div>
       )}

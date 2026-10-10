@@ -3,8 +3,11 @@
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
 import { ReactNode } from 'react';
+import { usePathname } from 'next/navigation';
 
 export function MainLayout({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  if (pathname === '/login') return <main>{children}</main>;
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <Header />

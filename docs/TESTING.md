@@ -2,6 +2,34 @@
 
 > Status: **implemented and passing**. Last run: 2026-10-09, **62 passed, 1 skipped**.
 
+## Verifikasi Campus Operations / Twin demo — 2026-10-10
+
+- `python -m pytest`: **91 passed, 1 skipped**, database SQLite terisolasi di
+  temporary directory, bukan database demo; test live LLM tidak dijalankan.
+  Ini bukan verifikasi migrasi/kompatibilitas PostgreSQL.
+- `tests/test_event_planning.py` mencakup forecast berbasis dataset, validasi,
+  auth, task/history/run round-trip, kegagalan adapter, inventory kosong,
+  follow-up IT Helpdesk hanya dari evidence, AI opsional dengan mock dan
+  token usage, serta kegagalan AI yang tidak pernah dianggap completed.
+- `npm run test -- --run`: **30 passed** pada snapshot working tree saat
+  verifikasi; termasuk tests bridge Twin dan changes Operations lokal lainnya.
+- `npx tsc --noEmit`, `python -m compileall -q src`, `python check_data.py`:
+  exit 0; dataset validation melaporkan 0 masalah.
+- `npm run build`: exit 0 di snapshot terisolasi frontend beserta root
+  `src/data` (dependency dari lockfile). Build di working tree saat dev server
+  aktif sebelumnya gagal saat collecting page data; snapshot tidak berbagi `.next`.
+- `npm run lint`: exit 1, meminta konfigurasi ESLint interaktif; belum ada
+  konfigurasi repo. Tidak diklaim lulus atau dilewati diam-diam.
+- `npx playwright test`: **3 passed**, Microsoft Edge headless, frontend build
+  lokal port 3001, API port 8001, SQLite terisolasi, key demo, LLM nonaktif.
+  Tests: event/evidence → reload → IT follow-up → history/reload; HTTP failure
+  tersimulasi dan retry pada viewport mobile; skenario OSM Twin → assessment
+  backend serta toggle Ops/Day. Tidak ada API OpenAI/Azure berbayar dipanggil.
+
+Cara menjalankan demo dan E2E: `docs/WORKFLOWS.md`, bagian Demo Campus Twin.
+Tests browser tidak membuktikan sensor live, relasi venue OSM/AP, mutu analisis
+LLM live, atau eksekusi perangkat; semua itu tetap di luar klaim demo ini.
+
 ## Prerequisites
 
 ```bash

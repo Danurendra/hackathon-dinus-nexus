@@ -1,14 +1,40 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { Menu, X, User, Bell, ChevronRight } from 'lucide-react';
 import { navigationItems } from '@/config/navigation';
+import { readDemoKey } from '@/lib/demoSession';
+import { readUserToken } from '@/lib/userSession';
+import { loadAccount, logoutAccount, type AccountUser } from '@/lib/login';
 
 export function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const pathname = usePathname();
+  const router = useRouter();
+  const [demoSession, setDemoSession] = useState(false);
+  const [account, setAccount] = useState<AccountUser | null>(null);
+  const [sessionError, setSessionError] = useState('');
+  const [loggingOut, setLoggingOut] = useState(false);
+  useEffect(() => {
+    setDemoSession(Boolean(readDemoKey()));
+    if (!readUserToken()) { setAccount(null); return; }
+    const controller = new AbortController();
+    void loadAccount(controller.signal).then((user) => {
+      if (controller.signal.aborted) return;
+      setAccount(user);
+      if (!user) router.replace('/login');
+    }).catch(() => { if (!controller.signal.aborted) setSessionError('Sesi belum dapat diverifikasi.'); });
+    return () => controller.abort();
+  }, [pathname, router]);
+
+  async function logout() {
+    setLoggingOut(true); setSessionError('');
+    try { await logoutAccount(); setAccount(null); setDemoSession(false); router.push('/login'); }
+    catch (reason) { setSessionError(reason instanceof Error ? reason.message : 'Logout gagal.'); }
+    finally { setLoggingOut(false); }
+  }
   const activeItem = navigationItems.find((item) => item.href === pathname || (item.href !== '/' && pathname.startsWith(item.href)));
 
   return (
@@ -23,7 +49,7 @@ export function Header() {
 
         {/* Desktop Navigation */}
         <nav className="hidden md:flex items-center space-x-6">
-          <span className="rounded-full bg-green-50 px-3 py-1 text-xs font-medium text-green-700">API connected</span>
+          <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">Workspace demo · SYNTHETIC</span>
         </nav>
 
         {/* Right side icons */}
@@ -35,7 +61,9 @@ export function Header() {
             <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center">
               <User className="w-4 h-4 text-white" />
             </div>
-            <span className="hidden md:block text-sm text-textSecondary">Admin</span>
+            {account && <span className="hidden max-w-32 truncate text-sm text-textSecondary md:block">{account.display_name}</span>}
+            {account || demoSession || sessionError ? <button disabled={loggingOut} className="rounded-lg px-2 py-2 text-sm text-textSecondary hover:bg-surfaceHover" onClick={() => void logout()}>{loggingOut ? 'Keluar...' : account || readUserToken() ? 'Keluar' : 'Keluar demo'}</button> : <Link href="/login" className="rounded-lg px-2 py-2 text-sm text-textSecondary hover:bg-surfaceHover">Masuk</Link>}
+            {sessionError && <span role="alert" className="max-w-48 text-xs text-red-700">{sessionError}</span>}
           </div>
           
           {/* Mobile menu button */}

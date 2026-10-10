@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { MapPin, Sun, Moon, Calendar } from 'lucide-react';
+import { MapPin, Sun, Moon, Calendar, Bot } from 'lucide-react';
 import { IsometricCanvas } from './IsometricCanvas';
 import { BuildingMesh } from './BuildingMesh';
 import { BuildingPins } from './BuildingPins';
@@ -21,12 +21,15 @@ import {
 } from '@/lib/scenarioModel';
 import { apiFetch } from '@/lib/api';
 import { panelStyle, badgeStyle, CampusButton } from './CampusTheme';
+import { EventAgentRun } from '@/components/operations/EventAgentRun';
+import { toEventPlanInput } from '@/lib/eventPlanBridge';
 
 export function CampusMap({ className = '' }: { className?: string }) {
   const [colorMode, setColorMode] = useState<ColorMode>('day');
   const [selectedBuildingId, setSelectedBuildingId] = useState<string>();
   const [activeLayers, setActiveLayers] = useState<Set<LayerType>>(new Set());
   const [showSimulator, setShowSimulator] = useState(false);
+  const [showWorkflow, setShowWorkflow] = useState(false);
   const [scenarioInput, setScenarioInput] = useState<ScenarioInput>(defaultGraduationScenario);
   const [scenarioActive, setScenarioActive] = useState(false);
   const [taskNotice, setTaskNotice] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -104,12 +107,16 @@ export function CampusMap({ className = '' }: { className?: string }) {
             <h2 className="text-lg font-semibold" style={{ color: palette.panelTextHigh }}>Campus Twin</h2>
             <span style={badgeStyle(palette, 'info')}>OSM GEODATA</span>
             <span style={badgeStyle(palette, 'neutral')}>CAMPUS OPERATIONS VIEW</span>
+            <span style={badgeStyle(palette, 'warning')}>SYNTHETIC OPERATIONS</span>
           </div>
           <p className="mt-1 text-sm" style={{ color: palette.panelTextMid }}>
             Digital twin interaktif dengan geometri nyata dari OpenStreetMap
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <CampusButton palette={palette} variant="outline" active={showWorkflow} onClick={() => setShowWorkflow(!showWorkflow)}>
+            <Bot className="h-4 w-4" /><span>Workflow Agent</span>
+          </CampusButton>
           <CampusButton
             palette={palette}
             variant="outline"
@@ -226,13 +233,21 @@ export function CampusMap({ className = '' }: { className?: string }) {
               onInputChange={setScenarioInput}
               active={scenarioActive}
               forecast={forecast}
-              onRun={() => setScenarioActive(true)}
+              onRun={() => { setScenarioActive(true); setShowWorkflow(true); }}
               onReset={handleResetScenario}
               onCreateTask={handleCreateTask}
             />
           </div>
         )}
       </div>
+
+      {showWorkflow && <div className="space-y-3 p-4" style={{ backgroundColor: palette.surfaceBg }}>
+        <p className="text-xs leading-5" style={{ color: palette.panelTextMid }}>Alur Campus Digital Worker: skenario Twin → assessment backend → evidence → rekomendasi → investigasi IT Helpdesk → history. Peta tetap proyeksi simulasi, bukan diagnosis live.</p>
+        {forecast ? <>
+          <p className="text-xs leading-5" style={{ color: palette.panelTextMuted }}>Transfer sebagai asumsi: peserta konkuren, jumlah dan kapasitas venue skenario. Alokasi daya 3.200 kW dan uplink 5.000 Mbps adalah fixture. Backend memakai model agregat terpisah; distribusi per gedung dan pengali cuaca Twin bukan telemetry dan tidak dihitung ulang oleh model agregat.</p>
+          <EventAgentRun input={toEventPlanInput(scenarioInput, forecast)} scenario={`Twin ${scenarioInput.sessions} sesi ${scenarioInput.environment}`} />
+        </> : <p className="text-sm" style={{ color: palette.panelTextHigh }}>Buka Scenario dan tekan Run Simulation untuk menyiapkan input workflow. Untuk melihat history tanpa skenario, buka Tasks & History.</p>}
+      </div>}
 
       {/* Footer legend */}
       <div

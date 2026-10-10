@@ -8,11 +8,18 @@ from uuid import uuid4
 # In-memory storage
 _conversations: Dict[str, Conversation] = {}
 _message_store: Dict[str, List[Message]] = {}
+_agent_status: Dict[str, Dict[str, Any]] = {}
 
 def create_conversation(conversation: Conversation) -> Conversation:
     """Create a new conversation"""
     _conversations[conversation.conversation_id] = conversation
     _message_store[conversation.conversation_id] = []
+    _agent_status[conversation.conversation_id] = {
+        "phase": "idle",
+        "status": "idle",
+        "detail": "Menunggu pesan.",
+        "updated_at": datetime.now().isoformat(),
+    }
     return conversation
 
 def get_conversation(conversation_id: str) -> Optional[Conversation]:
@@ -40,6 +47,7 @@ def delete_conversation(conversation_id: str) -> bool:
         del _conversations[conversation_id]
         if conversation_id in _message_store:
             del _message_store[conversation_id]
+        _agent_status.pop(conversation_id, None)
         return True
     return False
 
@@ -68,3 +76,19 @@ def list_conversations() -> List[Conversation]:
         conv_copy.messages = _message_store.get(conv.conversation_id, [])
         result.append(conv_copy)
     return result
+
+
+def set_agent_status(conversation_id: str, phase: str, status: str, detail: str) -> None:
+    """Record the current server-side phase of an agent request."""
+    if conversation_id in _conversations:
+        _agent_status[conversation_id] = {
+            "phase": phase,
+            "status": status,
+            "detail": detail,
+            "updated_at": datetime.now().isoformat(),
+        }
+
+
+def get_agent_status(conversation_id: str) -> Optional[Dict[str, Any]]:
+    """Return the latest server-side agent phase for a conversation."""
+    return _agent_status.get(conversation_id)

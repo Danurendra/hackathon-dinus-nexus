@@ -17,10 +17,17 @@
 | CI (GitHub Actions: compile, data check, migrasi, pytest) | implemented (workflow) |
 | Input validation & error handling | implemented, tested |
 | LLM `analyze_evidence` (opsional, `LLM_ENABLED=true`) | implemented, tested (mock) + diverifikasi live 1x |
-| Campus Twin 2D, upload dokumen, 7 role lain | planned |
+| Campus Twin OSM + scenario → Campus Operations assessment → IT Helpdesk follow-up | implemented; synthetic/planning data, verification details in workflow docs |
+| Upload dokumen, workflow penuh role lainnya | planned |
 | API/DB/Testing/Development docs | implemented |
 
 Detail verifikasi ada di [`docs/TESTING.md`](docs/TESTING.md) dan [`docs/DEVELOPMENT_LOG.md`](docs/DEVELOPMENT_LOG.md).
+
+Demo terbaru: di Campus Twin buka **Scenario → Run Simulation → Jalankan workflow
+event**. Assessment backend menyimpan risiko/evidence/history dan dapat membuat
+investigasi IT Helpdesk dari AP tidak online. Alternatif: `/workspace/operations`.
+Panduan, angka baseline, konfigurasi tanpa biaya LLM, dan keterbatasan ada di
+[`docs/WORKFLOWS.md`](docs/WORKFLOWS.md#demo-campus-twin--campus-operations--it-helpdesk).
 
 ## Fitur IT Helpdesk
 
@@ -90,6 +97,28 @@ docker run -d --name dinusnexus-postgres \
 # Terapkan skema.
 alembic upgrade head
 ```
+
+### Login akun workspace (PostgreSQL)
+
+Halaman `/login` memakai email/password akun lokal; UI juga menyediakan API key
+demo sebagai mode alternatif. Akun/sesi disimpan di PostgreSQL, password di-hash,
+sesi berlaku 8 jam dan dicabut saat keluar. Belum terhubung SSO atau RBAC kampus.
+
+Dengan venv aktif dari root, pastikan `DATABASE_URL` memakai
+`postgresql+psycopg://…` dan port PostgreSQL yang benar (container lokal di atas: **5434**), lalu:
+
+```bash
+alembic upgrade head
+python -m src.create_user --email staff@example.test --name "Campus Staff"
+# Masukkan password baru pada prompt tersembunyi, minimal 12 karakter.
+```
+
+Tidak ada akun/password default. Set `NEXT_PUBLIC_API_BASE_URL` pada
+`frontend/.env.local` ke backend, lalu restart backend/frontend dan buka `/login`.
+Login akun tidak memerlukan key backend di bundle browser. Hapus konfigurasi key
+publik bila ingin memakai akun saja; key demo build-time tetap tersedia setelah logout
+jika sebelumnya dikonfigurasi. Workspace masih bersama, bukan isolasi data per akun.
+Kontrak dan keterbatasan: [`docs/API.md`](docs/API.md#login-postgresql).
 
 ### Menjalankan API
 
@@ -179,6 +208,11 @@ demo. Hasil terakhir: **62 passed, 1 skipped**. Skenario dan fixture: [`docs/TES
 7. Career Center Staff · 8. Digital Archive Staff.
 
 ## Dokumen proyek
+
+Persiapan demo Azure: [`docs/AZURE_DEPLOYMENT.md`](docs/AZURE_DEPLOYMENT.md).
+`deploy-azure.ps1` default hanya preflight lokal; deployment berbiaya memerlukan
+persetujuan eksplisit dan resource existing. Frontend Docker dibangun dari root
+repo dengan `-f frontend/Dockerfile`, memakai login akun tanpa key di browser.
 
 - [`AGENTS.md`](AGENTS.md): instruksi untuk coding agent/OpenCode.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md): branching, commit, dan pull request.

@@ -4,6 +4,64 @@
 
 Fitur chatbot AI memungkinkan pengguna untuk berinteraksi dengan sistem melalui percakapan. Chatbot ini dirancang untuk membantu IT Helpdesk dengan memahami masalah, mencari data relevan, dan memberikan jawaban berdasarkan dataset sintetis.
 
+## Chat berbasis role di `/workspace/agents`
+
+Jalur aktif adalah handler message di `src/main.py`, bukan graph placeholder
+`src/workflows/chat.py`. Tiga role tersedia untuk **analisis/rekomendasi chat**:
+
+| Agent | Fokus jawaban | Evidence |
+|---|---|---|
+| IT Helpdesk | Triase gejala/dampak, korelasi insiden/perangkat, hipotesis dan pemeriksaan aman | `devices`, `incidents`, `zones`, `buildings` dari JSON sintetis |
+| Network Operations | Utilization/headroom per perangkat, latency, packet loss, bottleneck dan proyeksi dengan asumsi eksplisit | Fixture `network_adapter`, termasuk hasil aturan anomali |
+| Campus Operations | Klarifikasi acara/peserta/sesi, pilihan venue, koordinasi PIC/resource dan verifikasi kapasitas | Kapasitas zona/gedung dan insiden aktif JSON |
+
+`src/conversations/context.py` memberikan record allow-listed (maksimal 6 per dataset,
+string record maksimal 240 karakter), bukan hanya jumlah hasil pencarian. Follow-up
+memakai lokasi eksplisit terakhir pada empat pesan user terakhir; lokasi baru
+menggantikan lokasi lama. Riwayat provider dibatasi 12 pesan, maksimal 4.000 karakter
+per pesan. Context client tidak dapat mengganti role/policy server. Lampiran pada
+jalur ini belum diparsing; model tidak boleh mengaku membacanya.
+
+Respons analisis diarahkan untuk memisahkan ringkasan, fakta/evidence, hipotesis,
+langkah berikutnya dan hal belum diketahui. Detail kritis yang belum ada ditanyakan
+melalui maksimal tiga pertanyaan klarifikasi. Kualitas bahasa/penalaran tetap
+bergantung pada provider; prompt bukan jaminan bebas halusinasi. ID operasional
+dengan prefix dataset yang tidak ada di evidence ditolak, tetapi validasi ini
+bukan pemeriksaan kebenaran seluruh prosa model.
+
+Metadata respons menambahkan `data_label`, `sources`, `evidence` (dataset, source_id,
+record), `evidence_counts`, `derived`, dan `limitations`, seluruhnya dari adapter.
+UI merender subset Markdown aman dan panel evidence yang dapat dibuka. Evidence
+adalah konteks retrieval, bukan otomatis bukti diagnosis. Error provider/output
+kosong/ID tidak valid/tool gagal mengembalikan pesan aman HTTP 502.
+
+**Batas data:** `daily_capacity` dijumlahkan dari `zones.capacity` melalui `buildingId`.
+`event_capacity` fallback adalah estimasi `daily_capacity ×10`, bukan kapasitas venue
+terverifikasi. Default energi/AP adalah fixture. Dataset jaringan terpisah dari
+inventaris Helpdesk/Twin dan tidak boleh dianggap memiliki relasi otomatis.
+Chat tidak mengganti model kalkulasi Event Planning ataupun simulator Twin.
+
+**Sesi dan keamanan:** UI menyimpan hanya ID sesi per role di localStorage, kemudian
+memuat pesan dari backend saat pindah role/reload. Pesan masih di memori server,
+hilang saat restart; bukan persistence PostgreSQL. Tombol Sesi baru tidak menghapus
+history task. Chat tidak mengeksekusi tindakan atau membuat task otomatis. Workflow
+task IT dan assessment event terpisah tetap diperlukan untuk history persisten.
+Konfirmasi dalam chat bukan approval atau izin eksekusi. Semua endpoint tetap
+memerlukan `X-API-Key`; provider key tidak dikirim ke browser.
+
+Verifikasi otomatis: `python -m pytest tests/test_agent_chat_context.py
+tests/test_conversation_api.py` (provider dimock), dan browser test
+`frontend/e2e/agent-chat.spec.ts` dengan API dimock agar tidak memanggil provider
+berbayar atau mengubah database demo.
+
+Hasil verifikasi 10 Oktober 2026: 13 tes konteks/API lulus; 1 browser test Edge
+lulus (role isolation, evidence, reload, recovery, keyboard mobile/reduced-motion).
+Suite backend lulus dengan satu live-LLM test skipped menggunakan database SQLite
+terisolasi, bukan verifikasi PostgreSQL. Frontend: 39 tes Vitest dan `tsc --noEmit`
+lulus. Compile Python dan validasi dataset lulus. `next build` berhasil compile/type
+check tetapi gagal collect page data `/login` pada working tree yang sedang berubah;
+lint terblokir setup ESLint interaktif. Tidak ada panggilan provider live/berbayar.
+
 ## Komponen Utama
 
 ### 1. API Endpoints
@@ -151,7 +209,7 @@ API key hanya dibaca backend dari environment dan tidak pernah dikirim ke fronte
 2. **Persistent Storage**: Ganti memory storage dengan database
 3. **Advanced Intent Detection**: Menggunakan LLM untuk deteksi intent
 4. **Approval Flow**: Integrasi dengan sistem persetujuan
-5. **Multi-worker Support**: Mendukung role lain selain IT Helpdesk
+5. **Multi-worker workflow**: Perluasan eksekusi/persistence per role; analisis chat tiga role sudah tersedia
 
 ## Testing
 

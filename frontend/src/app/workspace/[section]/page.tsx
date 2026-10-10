@@ -1,11 +1,12 @@
 'use client';
 
 import Link from 'next/link';
+import { Suspense } from 'react';
 import { ArrowLeft, Bot, CheckCircle2, Database, Info } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
-import { EventPlanningWorkspace } from '@/components/operations/EventPlanningWorkspace';
+import { OperationsWorkspace } from '@/components/operations/OperationsWorkspace';
 import { AgentWorkspace } from '@/components/agents/AgentWorkspace';
 import { TasksWorkspace } from '@/components/tasks/TasksWorkspace';
 
@@ -48,7 +49,7 @@ const sections: Record<string, { title: string; description: string; status: 'av
 };
 
 export default function WorkspaceSectionPage({ params }: { params: { section: string } }) {
-  if (params.section === 'operations') return <EventPlanningWorkspace />;
+  if (params.section === 'operations') return <Suspense fallback={<p role="status">Memuat Operations...</p>}><OperationsWorkspace /></Suspense>;
   if (params.section === 'agents') return <AgentWorkspace />;
   if (params.section === 'tasks') return <TasksWorkspace />;
   if (params.section === 'approvals') return <TasksWorkspace initialStatusFilter="waiting_for_approval" />;

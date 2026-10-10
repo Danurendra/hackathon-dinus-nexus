@@ -32,7 +32,7 @@ def get_campus_buildings() -> List[Dict[str, Any]]:
         building_id = b.get("id", b.get("building_id", ""))
         
         # Find matching zones
-        building_zones = [z for z in zones if z.get("building_id") == building_id]
+        building_zones = [z for z in zones if z.get("buildingId") == building_id]
         total_capacity = sum(z.get("capacity", 0) for z in building_zones)
         
         result.append({
@@ -142,9 +142,9 @@ def get_campus_incidents() -> List[Dict[str, Any]]:
     # Group incidents by building
     result = []
     for b in buildings:
-        building_incidents = [i for i in incidents if i.get("building_id") == b["building_id"]]
+        building_incidents = [i for i in incidents if i.get("buildingId") == b["building_id"] and i.get("status") in ("open", "investigating", "maintenance")]
         
-        it_count = sum(1 for i in building_incidents if i.get("type") == "it")
+        it_count = sum(1 for i in building_incidents if i.get("type", "it") == "it")
         security_count = sum(1 for i in building_incidents if i.get("type") == "security")
         
         if it_count > 0:

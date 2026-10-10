@@ -64,7 +64,7 @@ export function ScenarioSimulator({
   );
 
   return (
-    <div className="p-4 max-w-3xl w-full" style={panelStyle(palette)}>
+    <div className="p-4 max-w-3xl w-full max-h-[70vh] overflow-y-auto" style={panelStyle(palette)}>
       <div className="flex items-start justify-between gap-3 mb-4">
         <div>
           <h3 className="font-semibold flex items-center gap-2" style={{ color: valueColor }}>

@@ -10,6 +10,39 @@
 Protected endpoints require a backend API key sent in the `X-API-Key` header.
 The value is read from the `DINUSNEXUS_API_KEY` environment variable.
 
+Alternatif untuk akun workspace: `Authorization: Bearer <access_token>` dari
+`POST /api/auth/login`. Sesi dan akun diverifikasi ke database pada setiap request
+task/conversation/event. Bearer invalid/expired tidak fallback ke API key.
+API key existing tetap kompatibel; `/health` tetap publik. Semua akun aktif
+mengakses workspace operasional bersama; belum ada RBAC/isolasi history per akun.
+
+### Login PostgreSQL
+
+Jalankan migrasi `alembic upgrade head` (revision `0004_user_sessions`), lalu
+buat akun secara lokal dengan `python -m src.create_user --email staff@example.test
+--name "Campus Staff"`. Password diminta tersembunyi, minimal 12/maksimal 128 karakter;
+tidak ada password default atau registrasi publik. URL harus memakai driver
+`postgresql+psycopg://…` dan port service yang benar (container lokal README: 5434).
+
+| Method | Path | Auth | Respons |
+|---|---|---|---|
+| POST | `/api/auth/login` | email/password | `200`: user, access_token, token_type, expires_at |
+| GET | `/api/auth/me` | bearer session | `200`: user; `401`: sesi expired/invalid |
+| POST | `/api/auth/logout` | bearer token | `204`: sesi token dicabut (idempotent) |
+
+Body login: `{"email":"staff@example.test","password":"<password-akun>"}`.
+Email dinormalisasi trim/lowercase; input/field tambahan invalid → `422`.
+Password tidak di-trim. Password tersimpan PBKDF2-SHA256 dengan salt acak dan
+600.000 iterasi; token acak hanya disimpan sebagai digest SHA-256 di database.
+Sesi berlaku 8 jam; user inactive/expired ditolak. Lima login salah mengunci
+akun 15 menit. Error akun tidak dikenal/password salah/akun nonaktif sama (`401`),
+database tidak tersedia → `503`. Respons autentikasi menggunakan `Cache-Control: no-store`.
+
+Token tidak memberi role admin; pembuatan akun hanya CLI dengan akses database lokal.
+Bearer token browser tersimpan di sessionStorage dan bisa dibaca JavaScript.
+HTTPS, hardening XSS, rate-limit global, reset-password aman, RBAC dan desain
+cookie HttpOnly/BFF masih diperlukan sebelum penggunaan produksi.
+
 - Missing or wrong key → `401`.
 - Server key not configured → `500` (the API fails closed rather than exposing
   endpoints).
@@ -23,6 +56,70 @@ curl -s http://127.0.0.1:8000/api/history \
 ```
 
 ## Endpoints
+
+### `POST /api/event-plans`
+
+Workflow Campus Operations: input event → inventory AP/insiden sintetis →
+kalkulasi dampak → deteksi risiko/rekomendasi → review AI opsional → task persisten.
+Memerlukan `X-API-Key`; response `201` menggunakan [Task object](#task-object)
+dengan `worker: campus_operations`. Tidak ada migrasi/tabel event baru.
+
+Body JSON (semua field wajib):
+
+```json
+{
+  "name": "Wisuda kampus",
+  "attendance": 39000,
+  "concurrentOccupancy": 18000,
+  "durationHours": 6,
+  "venueCapacity": 20000,
+  "venues": 3,
+  "availablePowerKw": 3200,
+  "availableNetworkMbps": 5000
+}
+```
+
+- Server menolak field tambahan, nilai nol/negatif/non-finite, concurrent occupancy
+  melebihi attendance, dan nama kosong (`422`). Attendance/concurrent/capacity
+  maksimal 100.000; durasi maksimal 168 jam; venues 1–100; daya/jaringan ≤1.000.000.
+- Event dimasukkan pengguna; bukan deteksi otomatis kalender/live telemetry.
+  Inventory dibaca dari `data_adapter.load_data`, bukan status hasil karangan AI.
+- `result.event_input` menyimpan asumsi; `result.forecast` menyimpan kalkulasi
+  backend. `facts`/`evidence` berisi AP dan insiden aktif dari dataset sintetis,
+  **campus-wide**, belum membuktikan relasi ke venue event/gedung OSM.
+- Formula dasar mengikuti `frontend/src/data/eventSimulation.ts`; tambahan kapasitas
+  akses adalah asumsi **200 Mbps/AP online**, bukan throughput terukur. Forecast
+  memiliki `onlineAccessPoints`, `estimatedAccessCapacityMbps`, dan
+  `additionalAccessPoints` selain metrik daya, energi, okupansi, dan uplink.
+- LangGraph steps: `inspect_event_records`, `calculate_event_impact`,
+  `prepare_event_assessment`, `analyze_event_evidence`. JSON steps menyimpan
+  timestamp dan `duration_ms` terukur; normalized steps menyimpan durasi dalam
+  `detail`. `/api/history`, `/api/tasks/{id}`, `/api/tasks/{id}/runs` juga membaca
+  task Campus Operations. Setiap langkah yang selesai dipersistenkan.
+- Default `analysis_mode: deterministic`; langkah review AI `skipped`.
+  `LLM_ENABLED=true` memakai `src/llm/analysis.py` yang sudah ada (bounded digest,
+  OpenAI Structured Outputs, maksimum 700 output tokens/request, bounded retries).
+  Review disimpan terpisah di `result.analysis`, mode menjadi `llm_assisted`,
+  usage masuk kolom task/token metrics. Tidak mengubah evidence atau fakta.
+- Database gagal sebelum task tersimpan → `503`. Data/kalkulasi/provider gagal →
+  `500` dengan task/run ID dan kode aman `EVENT_ASSESSMENT_FAILED`; task dan
+  langkah gagal dipersistenkan. Hasil kalkulasi yang sudah disimpan tetap tersedia.
+- Tidak ada restart perangkat, deployment AP, perubahan konfigurasi, atau aksi
+  sensitif yang dieksekusi. Tidak menambah API key Azure/provider baru.
+
+### `POST /api/event-plans/{task_id}/helpdesk`
+
+Follow-up yang diminta manusia untuk AP tidak online dalam evidence event.
+Memerlukan `X-API-Key`; body `{"device_id": "device-AP-A2-02"}`.
+
+- `201`: task IT Helpdesk baru dari workflow existing, dengan zone/device type
+  yang diambil server dari evidence dan ID event sumber dalam description.
+- `404`: event tidak ada; `409`: assessment belum completed; `422`: ID bukan AP
+  tidak online dalam evidence event; `503`: database tidak tersedia.
+- `requested_action` tidak diisi; hanya investigasi, bukan aksi perangkat. Bila
+  `LLM_ENABLED=true`, analisis IT Helpdesk existing juga dapat memakai OpenAI.
+- Endpoint `/api/tasks` tetap hanya menerima `it_helpdesk`; Campus Operations
+  dibuat lewat `/api/event-plans`, bukan memperluas kontrak worker lama.
 
 ### `GET /health`
 

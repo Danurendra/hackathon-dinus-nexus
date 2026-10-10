@@ -141,10 +141,33 @@ Kontrak API perlu memakai ID stabil dan state eksplisit. Format final endpoint/D
 
 ## Components as built
 
+### Akun dan sesi PostgreSQL
+
+`src/account_api.py` menyediakan login/me/logout, `src/accounts.py` memverifikasi
+password dan sesi, dan `src/create_user.py` melakukan provisioning admin lokal.
+Migrasi `0004_user_sessions` menambah `users` dan `user_sessions` tanpa mengubah
+persistence task existing. `src/auth.py` menerima bearer session terverifikasi atau
+API key existing; bearer invalid tidak fallback. Semua akun aktif berbagi workspace
+operasional; RBAC/isolasi data per akun, SSO dan reset password mandiri belum tersedia.
+Frontend `/login` menyimpan token sementara di sessionStorage dan logout mencabut
+digest sesi di database. Kontrak, keamanan dan setup: `docs/API.md#login-postgresql`.
+
+### Campus Operations event workflow
+
+`src/event_api.py` diregistrasikan oleh `src/main.py` setelah helper task tersedia.
+Graph `src/workflows/event_planning.py` menjalankan inventory sintetis → kalkulasi
+event → rekomendasi → review AI opsional, memakai tabel Task/TaskRun/ExecutionStep
+existing. UI Operations dan `CampusMap` memakai `EventAgentRun`; bridge Twin
+meneruskan input sebagai asumsi, tidak menganggap ID/kapasitas OSM sebagai status
+perangkat live. Follow-up mengikat description IT Helpdesk ke event task ID dan
+memvalidasi device dari evidence tersimpan. Kontrak: `docs/API.md`; demo dan
+batas model: `docs/WORKFLOWS.md`. Langkah review LLM menggunakan wrapper OpenAI
+existing, default skipped; facts/evidence tetap tidak diubah model.
+
 | Component | File | Status | Responsibility |
 |---|---|---|---|
 | API | `src/main.py` | implemented | FastAPI app, request validation, endpoints, response serialization |
-| Auth | `src/auth.py` | implemented | `X-API-Key` dependency (`DINUSNEXUS_API_KEY`) |
+| Auth | `src/auth.py`, `src/account_api.py`, `src/accounts.py` | implemented | Sesi akun PostgreSQL atau `X-API-Key` demo (`DINUSNEXUS_API_KEY`) |
 | Workflow nodes | `src/main.py` | implemented | Deterministic LangGraph state machine |
 | Data adapter | `src/data_adapter.py` | implemented | Keyword/synonym retrieval over JSON datasets |
 | Datasets | `src/data/*.json` | implemented | 59 synthetic records, labeled `SYNTHETIC` |

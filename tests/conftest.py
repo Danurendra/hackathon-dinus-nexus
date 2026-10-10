@@ -65,7 +65,7 @@ def _clean_tasks():
         if engine.dialect.name == "postgresql":
             connection.execute(
                 text(
-                    "TRUNCATE TABLE execution_steps, task_runs, tasks RESTART IDENTITY CASCADE"
+                    "TRUNCATE TABLE user_sessions, users, execution_steps, task_runs, tasks RESTART IDENTITY CASCADE"
                 )
             )
         else:

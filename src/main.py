@@ -41,7 +41,9 @@ from src.conversations.store import (
     delete_conversation,
     add_message,
     get_messages,
-    list_conversations
+    list_conversations,
+    set_agent_status,
+    get_agent_status,
 )
 from src.workflows.chat import create_chat_workflow
 from src.llm.litellm_client import (
@@ -52,8 +54,6 @@ from src.llm.litellm_client import (
 from src.config.settings import Settings
 from src.llm.prompts import HELPDESK_SYSTEM_PROMPT, NETWORK_SYSTEM_PROMPT, CAMPUS_SYSTEM_PROMPT
 from src.data_adapter import search_helpdesk
-from src.network_adapter import search_network, detect_network_anomalies
-from src.campus_adapter import search_campus, get_campus_incidents
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +76,10 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+from src.account_api import router as account_router
+
+app.include_router(account_router)
 
 
 def cors_origins() -> list[str]:
@@ -830,6 +834,21 @@ def delete_conversation_endpoint(conversation_id: str):
     return {"message": "Conversation deleted successfully"}
 
 
+@app.get(
+    "/api/conversations/{conversation_id}/agent-status",
+    dependencies=[Depends(require_api_key)],
+)
+def get_agent_status_endpoint(conversation_id: str):
+    """Return the latest backend phase for the active agent request."""
+    if get_conversation(conversation_id) is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return get_agent_status(conversation_id) or {
+        "phase": "idle",
+        "status": "idle",
+        "detail": "Menunggu pesan.",
+    }
+
+
 @app.post(
     "/api/conversations/{conversation_id}/messages",
     status_code=201,
@@ -844,6 +863,12 @@ async def send_message(conversation_id: str, payload: SendMessageRequest):
     
     # Determine worker from conversation
     worker = conversation.worker or "it_helpdesk"
+    set_agent_status(
+        conversation_id,
+        "received",
+        "running",
+        "Pesan diterima oleh agent.",
+    )
     
     # Select system prompt based on worker
     system_prompts = {
@@ -869,70 +894,26 @@ async def send_message(conversation_id: str, payload: SendMessageRequest):
     # Add user message
     add_message(user_message)
     
-    # Prepare messages for chat workflow
-    all_messages = get_messages(conversation_id)
-    workflow_messages = [
-        {
-            "role": msg.role.value,
-            "content": msg.content,
-            "created_at": (
-                msg.created_at.isoformat()
-                if hasattr(msg.created_at, "isoformat")
-                else msg.created_at
-            ),
-        }
-        for msg in all_messages
-    ]
-    
-    # Enrich context with worker-specific data
-    context_enrichment = ""
-    
-    if worker == "it_helpdesk":
-        # Search helpdesk data
-        search_result = search_helpdesk(payload.content)
-        if search_result["matches"]:
-            context_enrichment = "\n\n**Data Terkait (SYNTHETIC):**\n"
-            for dataset, records in search_result["matches"].items():
-                if records:
-                    context_enrichment += f"- {dataset}: {len(records)} item ditemukan\n"
-    
-    elif worker == "network_operations":
-        # Search network data + detect anomalies
-        network_result = search_network(payload.content)
-        anomalies = detect_network_anomalies()
-        
-        context_enrichment = "\n\n**Data Jaringan (SYNTHETIC):**\n"
-        if network_result["devices"]:
-            context_enrichment += f"- Perangkat terkait: {len(network_result['devices'])} device\n"
-        if network_result["zones"]:
-            context_enrichment += f"- Zona terkait: {len(network_result['zones'])} zona\n"
-        if anomalies:
-            context_enrichment += f"- **Anomali terdeteksi: {len(anomalies)}**\n"
-            for a in anomalies[:3]:  # Top 3
-                context_enrichment += f"  • {a['device_id']}: {a['message']}\n"
-    
-    elif worker == "campus_operations":
-        # Search campus data + get incidents
-        campus_result = search_campus(payload.content)
-        incidents = get_campus_incidents()
-        
-        context_enrichment = "\n\n**Data Kampus (SYNTHETIC):**\n"
-        if campus_result["buildings"]:
-            context_enrichment += f"- Gedung terkait: {len(campus_result['buildings'])} building\n"
-        if incidents:
-            context_enrichment += f"- Insiden aktif: {len(incidents)} insiden\n"
-            for inc in incidents[:3]:  # Top 3
-                context_enrichment += f"  • {inc['building_name']}: {inc['count']} {inc['type']} incidents\n"
-    
-    # Add worker context to system prompt
-    worker_context = f"\n\nWorker aktif: {worker}{context_enrichment}"
-    
-    # Run chat workflow
+    from src.conversations.context import (
+        build_chat_evidence, evidence_prompt, provider_history, validate_source_mentions,
+    )
+
     try:
+        set_agent_status(conversation_id, "retrieving_evidence", "running", "Mencari evidence dari adapter data sintetis.")
+        all_messages = get_messages(conversation_id)
+        bundle = build_chat_evidence(worker, all_messages)
+        set_agent_status(
+            conversation_id,
+            "analyzing",
+            "running",
+            "Agent menganalisis evidence dengan policy worker.",
+        )
         response = await llm_client.chat_completion([
-            {"role": "system", "content": system_prompt + worker_context},
-            *workflow_messages
+            {"role": "system", "content": system_prompt + evidence_prompt(bundle)},
+            *provider_history(all_messages)
         ])
+        if not response.content.strip() or not validate_source_mentions(response.content, bundle["evidence"]):
+            raise ValueError("Invalid agent response")
         
         # Create assistant message
         assistant_message = Message(
@@ -944,18 +925,42 @@ async def send_message(conversation_id: str, payload: SendMessageRequest):
             metadata={
                 "tokens_used": response.usage,
                 "model": response.model,
-                "worker": worker
+                "worker": worker,
+                "data_label": bundle["data_label"],
+                "sources": list(dict.fromkeys(e["source_id"] for e in bundle["evidence"])),
+                "evidence": bundle["evidence"],
+                "evidence_counts": bundle["counts"],
+                "derived": bundle["derived"],
+                "limitations": bundle["limitations"],
             }
         )
         
         # Add assistant message
+        set_agent_status(
+            conversation_id,
+            "saving_response",
+            "running",
+            "Menyimpan jawaban, metadata, dan sumber.",
+        )
         add_message(assistant_message)
+        set_agent_status(
+            conversation_id,
+            "completed",
+            "completed",
+            "Analisis selesai dan respons tersimpan.",
+        )
         
         # Return the response
         return assistant_message
         
     except Exception:
         logger.exception("Conversation LLM request failed for worker=%s", worker)
+        set_agent_status(
+            conversation_id,
+            "failed",
+            "failed",
+            "Provider agent gagal memproses permintaan.",
+        )
         safe_error = (
             "Maaf, agent belum dapat memproses permintaan. "
             "Periksa koneksi provider atau coba lagi."
@@ -970,3 +975,13 @@ async def send_message(conversation_id: str, payload: SendMessageRequest):
         )
         add_message(error_message)
         raise HTTPException(status_code=502, detail=safe_error)
+
+
+from src.event_api import event_router
+
+
+def create_event_helpdesk(description: str, zone_id: str):
+    return create_task(CreateTaskInput(description=description, location=zone_id, device_type="access_point"), None)
+
+
+app.include_router(event_router(serialize_task, persist_run, _persist_failed_task, create_event_helpdesk))

@@ -8,6 +8,10 @@ __pycache__
 *.pyd
 .env
 .env.local
+.env*
+**/.env*
+**/*.pem
+**/*.key
 *.db
 tests/
 frontend/

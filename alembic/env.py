@@ -20,7 +20,8 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Never hardcode the connection string in alembic.ini; use the environment.
-config.set_main_option("sqlalchemy.url", DATABASE_URL)
+# ConfigParser memakai % untuk interpolation; URL password dapat percent-encoded.
+config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("%", "%%"))
 
 target_metadata = Base.metadata
 

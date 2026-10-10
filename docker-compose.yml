@@ -38,8 +38,8 @@ services:
 
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: frontend/Dockerfile
       args:
         - NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
         - NEXT_PUBLIC_DINUSNEXUS_API_KEY=06431bfc490640038e877c92db706484107b30932b9e48f584ed9030b68f3638
